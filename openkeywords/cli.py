@@ -54,6 +54,7 @@ def main():
 @click.option("--region", default="us", help="Target region (country code)")
 @click.option("--min-score", default=40, help="Minimum company-fit score")
 @click.option("--with-gaps", is_flag=True, help="Enable SE Ranking gap analysis (requires URL)")
+@click.option("--with-research", is_flag=True, help="Enable deep research (Reddit, Quora, forums)")
 @click.option("--output", "-o", default=None, help="Output file (csv or json)")
 @click.option("--competitors", default=None, help="Competitor URLs (comma-separated)")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
@@ -72,6 +73,7 @@ def generate(
     region: str,
     min_score: int,
     with_gaps: bool,
+    with_research: bool,
     competitors: str,
     output: str,
     verbose: bool,
@@ -85,7 +87,7 @@ def generate(
 
         openkeywords generate -c "Acme" -s "project management,collaboration" -n 100
 
-        openkeywords generate -c "Acme" --with-volume --output keywords.csv
+        openkeywords generate -c "Acme" --with-research --output keywords.csv
     """
     setup_logging(verbose)
 
@@ -124,10 +126,14 @@ def generate(
         cluster_count=clusters,
         language=language,
         region=region,
+        enable_research=with_research,
     )
 
     console.print(f"\n[bold blue]🔑 OpenKeywords[/bold blue]")
-    console.print(f"Generating {count} keywords for [green]{company}[/green]\n")
+    console.print(f"Generating {count} keywords for [green]{company}[/green]")
+    if with_research:
+        console.print("[bold magenta]🔍 Deep Research enabled (Reddit, Quora, forums)[/bold magenta]")
+    console.print()
 
     # Run generation
     async def run():
@@ -155,12 +161,20 @@ def generate(
     console.print(f"  Average score: {result.statistics.avg_score:.1f}")
     console.print(f"  Clusters: {len(result.clusters)}")
 
+    # Source breakdown (if research was enabled)
+    if result.statistics.source_breakdown and len(result.statistics.source_breakdown) > 1:
+        console.print("\n[bold]Keyword Sources:[/bold]")
+        for source, src_count in result.statistics.source_breakdown.items():
+            pct = (src_count / len(result.keywords)) * 100 if result.keywords else 0
+            icon = "🔍" if "research" in source else "🤖" if source == "ai_generated" else "📊"
+            console.print(f"  {icon} {source}: {src_count} ({pct:.0f}%)")
+
     # Intent breakdown
     if result.statistics.intent_breakdown:
         console.print("\n[bold]Intent Distribution:[/bold]")
-        for intent, count in result.statistics.intent_breakdown.items():
-            pct = (count / len(result.keywords)) * 100 if result.keywords else 0
-            console.print(f"  {intent}: {count} ({pct:.0f}%)")
+        for intent, int_count in result.statistics.intent_breakdown.items():
+            pct = (int_count / len(result.keywords)) * 100 if result.keywords else 0
+            console.print(f"  {intent}: {int_count} ({pct:.0f}%)")
 
     # Show top keywords
     console.print("\n[bold]Top 10 Keywords:[/bold]")
@@ -174,23 +188,23 @@ def generate(
         table.add_column("Volume", justify="right")
         table.add_column("Difficulty", justify="right")
 
+    if with_research:
+        table.add_column("Source", style="magenta")
+
     for kw in result.keywords[:10]:
+        row = [
+            kw.keyword,
+            kw.intent,
+            str(kw.score),
+            kw.cluster_name or "-",
+        ]
         if with_gaps:
-            table.add_row(
-                kw.keyword,
-                kw.intent,
-                str(kw.score),
-                kw.cluster_name or "-",
-                str(kw.volume),
-                str(kw.difficulty),
-            )
-        else:
-            table.add_row(
-                kw.keyword,
-                kw.intent,
-                str(kw.score),
-                kw.cluster_name or "-",
-            )
+            row.extend([str(kw.volume), str(kw.difficulty)])
+        if with_research:
+            # Shorten source name for display
+            src = kw.source.replace("research_", "📍").replace("ai_generated", "🤖").replace("gap_analysis", "📊")
+            row.append(src)
+        table.add_row(*row)
 
     console.print(table)
 

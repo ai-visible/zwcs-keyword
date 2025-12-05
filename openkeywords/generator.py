@@ -1,5 +1,5 @@
 """
-Core keyword generation using Google Gemini + SE Ranking gap analysis
+Core keyword generation using Google Gemini + SE Ranking gap analysis + Deep Research
 """
 
 import asyncio
@@ -23,6 +23,17 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Lazy import for research engine (optional dependency)
+_research_engine = None
+
+def _get_research_engine(api_key: str, model: str):
+    """Lazily initialize research engine."""
+    global _research_engine
+    if _research_engine is None:
+        from .researcher import ResearchEngine
+        _research_engine = ResearchEngine(api_key=api_key, model=model)
+    return _research_engine
 
 # Valid intent types
 VALID_INTENTS = {"transactional", "commercial", "comparison", "informational", "question"}
@@ -98,19 +109,29 @@ class KeywordGenerator:
 
         logger.info(f"Generating {config.target_count} keywords for {company_info.name}")
         logger.info(f"Language: {config.language}, Region: {config.region}")
+        if config.enable_research:
+            logger.info("Deep research ENABLED (Reddit, Quora, forums)")
 
         all_keywords = []
 
-        # Step 1: SE Ranking gap analysis (if available and company has URL)
+        # Step 1: Deep Research (if enabled) - Reddit, Quora, forums
+        research_keywords = []
+        if config.enable_research:
+            research_keywords = await self._get_research_keywords(company_info, config)
+            logger.info(f"🔍 Deep research found {len(research_keywords)} hyper-niche keywords")
+            all_keywords.extend(research_keywords)
+
+        # Step 2: SE Ranking gap analysis (if available and company has URL)
         gap_keywords = []
         if self.seranking_client and company_info.url:
             gap_keywords = await self._get_gap_keywords(company_info, config)
             logger.info(f"Got {len(gap_keywords)} gap keywords from SE Ranking")
             all_keywords.extend(gap_keywords)
 
-        # Step 2: AI keyword generation
-        # Generate more AI keywords if we didn't get enough from gap analysis
-        ai_target = max(config.target_count - len(gap_keywords), config.target_count // 2)
+        # Step 3: AI keyword generation
+        # Generate more AI keywords to fill the gap
+        existing_count = len(research_keywords) + len(gap_keywords)
+        ai_target = max(config.target_count - existing_count, config.target_count // 3)
         ai_keywords = await self._generate_ai_keywords(company_info, config, ai_target)
         logger.info(f"Generated {len(ai_keywords)} AI keywords")
         all_keywords.extend(ai_keywords)
@@ -158,6 +179,7 @@ class KeywordGenerator:
                 is_question=kw.get("is_question", False),
                 volume=kw.get("volume", 0),
                 difficulty=kw.get("difficulty", 50),
+                source=kw.get("source", "ai_generated"),
             )
             for kw in all_keywords
         ]
@@ -224,6 +246,48 @@ class KeywordGenerator:
 
         except Exception as e:
             logger.error(f"Gap analysis failed: {e}")
+            return []
+
+    async def _get_research_keywords(
+        self, company_info: CompanyInfo, config: GenerationConfig
+    ) -> list[dict]:
+        """
+        Get keywords from deep research (Reddit, Quora, forums).
+
+        Uses Google Search grounding to find real user discussions
+        and extract hyper-niche keywords and questions.
+        """
+        try:
+            # Initialize research engine
+            researcher = _get_research_engine(self.api_key, self.model_name)
+
+            # Run deep research
+            research_keywords = await researcher.discover_keywords(
+                company_name=company_info.name,
+                industry=company_info.industry or "general",
+                services=company_info.services,
+                products=company_info.products,
+                target_location=company_info.target_location or "United States",
+                language=config.language,
+                target_count=config.target_count // 2,  # Research provides ~50% of keywords
+            )
+
+            # Normalize source names
+            for kw in research_keywords:
+                source = kw.get("source", "research")
+                if source in ("reddit", "research_reddit"):
+                    kw["source"] = "research_reddit"
+                elif source in ("quora_paa", "research_quora"):
+                    kw["source"] = "research_quora"
+                elif source in ("niche_research", "research_niche"):
+                    kw["source"] = "research_niche"
+                else:
+                    kw["source"] = "research"
+
+            return research_keywords
+
+        except Exception as e:
+            logger.error(f"Deep research failed: {e}")
             return []
 
     async def _generate_ai_keywords(
@@ -689,9 +753,11 @@ Return ONLY a JSON object:
 
         intent_counts = defaultdict(int)
         length_counts = {"short": 0, "medium": 0, "long": 0}
+        source_counts = defaultdict(int)
 
         for kw in keywords:
             intent_counts[kw.intent] += 1
+            source_counts[kw.source] += 1
 
             word_count = len(kw.keyword.split())
             if word_count <= 3:
@@ -706,5 +772,6 @@ Return ONLY a JSON object:
             avg_score=sum(kw.score for kw in keywords) / len(keywords),
             intent_breakdown=dict(intent_counts),
             word_length_distribution=length_counts,
+            source_breakdown=dict(source_counts),
             duplicate_count=duplicate_count,
         )

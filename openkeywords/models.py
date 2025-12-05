@@ -30,6 +30,10 @@ class GenerationConfig(BaseModel):
     cluster_count: int = Field(default=6, description="Target number of clusters")
     language: str = Field(default="english", description="Target language (any language)")
     region: str = Field(default="us", description="Target region/country code")
+    enable_research: bool = Field(
+        default=False,
+        description="Enable deep research (Reddit, Quora, forums) for hyper-niche keywords"
+    )
 
 
 class Keyword(BaseModel):
@@ -45,6 +49,10 @@ class Keyword(BaseModel):
     is_question: bool = Field(default=False, description="Is this a question keyword?")
     volume: int = Field(default=0, description="Monthly search volume (from SE Ranking)")
     difficulty: int = Field(default=50, description="SEO difficulty score (from SE Ranking)")
+    source: str = Field(
+        default="ai_generated",
+        description="Keyword source: ai_generated, gap_analysis, research_reddit, research_quora, research_niche"
+    )
 
 
 class Cluster(BaseModel):
@@ -69,6 +77,9 @@ class KeywordStatistics(BaseModel):
     word_length_distribution: dict[str, int] = Field(
         default_factory=dict, description="Count by word length category"
     )
+    source_breakdown: dict[str, int] = Field(
+        default_factory=dict, description="Count by source (ai_generated, gap_analysis, research)"
+    )
     duplicate_count: int = Field(default=0, description="Duplicates removed")
 
 
@@ -87,7 +98,7 @@ class GenerationResult(BaseModel):
         with open(filepath, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(
-                ["keyword", "intent", "score", "cluster", "is_question", "volume", "difficulty"]
+                ["keyword", "intent", "score", "cluster", "is_question", "volume", "difficulty", "source"]
             )
             for kw in self.keywords:
                 writer.writerow(
@@ -99,6 +110,7 @@ class GenerationResult(BaseModel):
                         kw.is_question,
                         kw.volume,
                         kw.difficulty,
+                        kw.source,
                     ]
                 )
 

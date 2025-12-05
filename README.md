@@ -1,11 +1,12 @@
 # 🔑 OpenKeywords
 
-**AI-powered SEO keyword generation using Google Gemini + SE Ranking**
+**AI-powered SEO keyword generation using Google Gemini + SE Ranking + Deep Research**
 
 Generate high-quality, clustered SEO keywords for any business in any language.
 
 ## ✨ Features
 
+- **🔍 Deep Research** - Find hyper-niche keywords from Reddit, Quora, forums using Google Search grounding
 - **AI Keyword Generation** - Google Gemini generates diverse, relevant keywords
 - **Intent Classification** - Automatic classification (question, commercial, transactional, comparison, informational)
 - **Company-Fit Scoring** - AI scores each keyword's relevance (0-100)
@@ -48,12 +49,29 @@ openkeywords generate \
   --services "project management,team collaboration" \
   --count 50
 
+# 🔍 With Deep Research (Reddit, Quora, forums)
+openkeywords generate \
+  --company "Acme Software" \
+  --industry "B2B SaaS" \
+  --services "project management" \
+  --count 50 \
+  --with-research
+
 # With SE Ranking gap analysis (requires URL + API key)
 openkeywords generate \
   --company "Acme Software" \
   --url "https://acme.com" \
   --count 50 \
   --with-gaps
+
+# Full power: Research + Gap Analysis + AI
+openkeywords generate \
+  --company "Acme Software" \
+  --url "https://acme.com" \
+  --industry "B2B SaaS" \
+  --with-research \
+  --with-gaps \
+  --count 100
 
 # Specify language and region
 openkeywords generate \
@@ -62,13 +80,6 @@ openkeywords generate \
   --language "german" \
   --region "de" \
   --count 30
-
-# With competitors for gap analysis
-openkeywords generate \
-  --company "Acme" \
-  --url "https://acme.com" \
-  --competitors "competitor1.com,competitor2.com" \
-  --with-gaps
 
 # Output to file
 openkeywords generate \
@@ -113,6 +124,7 @@ async def generate_keywords():
         cluster_count=6,           # Target cluster count
         language="english",        # Any language name
         region="us",               # Country code
+        enable_research=True,      # 🔍 Enable deep research (Reddit, Quora, forums)
     )
 
     # Generate keywords
@@ -120,7 +132,7 @@ async def generate_keywords():
 
     # Access results
     for kw in result.keywords[:10]:
-        print(f"{kw.keyword} | {kw.intent} | Score: {kw.score} | Cluster: {kw.cluster_name}")
+        print(f"{kw.keyword} | {kw.intent} | Score: {kw.score} | Source: {kw.source}")
 
     # Export
     result.to_csv("keywords.csv")
@@ -199,30 +211,73 @@ asyncio.run(generate_keywords())
 │                      OpenKeywords Pipeline                   │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
-│  1. SE RANKING GAP ANALYSIS (Optional)                      │
+│  1. 🔍 DEEP RESEARCH (Optional - enable_research=True)      │
+│     └─ Google Search grounding finds real user keywords     │
+│        • Reddit discussions → pain points, questions        │
+│        • Quora + PAA → real questions people ask            │
+│        • Forums → niche terminology, use cases              │
+│                                                              │
+│  2. SE RANKING GAP ANALYSIS (Optional)                      │
 │     └─ Find AEO-optimized keywords competitors rank for     │
 │                                                              │
-│  2. AI GENERATION (Gemini)                                  │
+│  3. AI GENERATION (Gemini)                                  │
 │     └─ Generate diverse keywords with intent distribution   │
 │                                                              │
-│  3. FAST DEDUPLICATION                                      │
+│  4. FAST DEDUPLICATION                                      │
 │     └─ Exact match + token signature grouping O(n)          │
 │                                                              │
-│  4. SCORING (Gemini)                                        │
+│  5. SCORING (Gemini)                                        │
 │     └─ Score company fit (0-100) in parallel batches        │
 │                                                              │
-│  5. SEMANTIC DEDUPLICATION (Gemini)                         │
+│  6. SEMANTIC DEDUPLICATION (Gemini)                         │
 │     └─ Single prompt removes near-duplicates                │
 │        "sign up X" vs "sign up for X" → keep best           │
 │                                                              │
-│  6. CLUSTERING (Gemini)                                     │
+│  7. CLUSTERING (Gemini)                                     │
 │     └─ Group into semantic topic clusters                   │
 │                                                              │
-│  7. FILTERING                                               │
+│  8. FILTERING                                               │
 │     └─ Apply min_score, limit to target_count               │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+## 🔍 Deep Research
+
+Deep Research uses **Google Search grounding** to find hyper-niche keywords from real user discussions.
+
+**What it searches:**
+- **Reddit** - Real user pain points, questions, and terminology
+- **Quora + PAA** - Actual questions people ask (People Also Ask)
+- **Forums & Communities** - Niche industry terms and use cases
+
+**Why it matters:**
+- Finds keywords AI alone would **never generate**
+- Discovers the **exact language** your audience uses
+- Uncovers **long-tail, low-competition** opportunities
+- Perfect for AEO (Answer Engine Optimization)
+
+**Example keywords found by Deep Research:**
+- "How do I make my content stand out to AI?" (from Reddit)
+- "AI-driven content optimization for zero-click answers" (niche terminology)
+- "why does Google ignore my structured data" (real user frustration)
+
+```python
+# Enable deep research
+config = GenerationConfig(
+    target_count=50,
+    enable_research=True,  # 🔍 Enables Reddit, Quora, forum search
+)
+
+result = await generator.generate(company, config)
+
+# Check keyword sources
+for kw in result.keywords:
+    print(f"{kw.keyword} | Source: {kw.source}")
+    # Sources: research_reddit, research_quora, research_niche, ai_generated
+```
+
+**Note:** Deep Research requires the `google-genai` SDK and uses Gemini's Google Search tool.
 
 ## 🔌 SE Ranking Gap Analysis
 
@@ -271,6 +326,7 @@ result = await generator.generate(
 | `cluster_count` | 6 | Target number of clusters |
 | `language` | "english" | Target language (any language) |
 | `region` | "us" | Target region (country code) |
+| `enable_research` | False | 🔍 Enable deep research (Reddit, Quora, forums) |
 
 ### Intent Distribution
 
