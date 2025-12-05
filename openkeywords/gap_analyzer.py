@@ -8,6 +8,7 @@ Author: GrowthGPT
 Version: 1.0.0
 """
 
+import os
 import requests
 import json
 import csv
@@ -386,7 +387,11 @@ Examples:
     }
 
     # Initialize API and analyzer
-    api = SEORankingAPI(API_KEY)
+    api_key = os.environ.get("SERANKING_API_KEY")
+    if not api_key:
+        print("Error: SERANKING_API_KEY environment variable not set")
+        sys.exit(1)
+    api = SEORankingAPI(api_key)
     analyzer = AEOContentGapAnalyzer(api)
 
     # Temporarily store custom filters
