@@ -1,5 +1,5 @@
 """
-Core keyword generation using Google Gemini
+Core keyword generation using Google Gemini + SE Ranking gap analysis
 """
 
 import asyncio
@@ -27,46 +27,18 @@ logger = logging.getLogger(__name__)
 # Valid intent types
 VALID_INTENTS = {"transactional", "commercial", "comparison", "informational", "question"}
 
-# Question starters by language
-QUESTION_STARTERS = {
-    "de": ["wie", "was", "warum", "wann", "wo", "welch", "wer", "woher", "wohin", "weshalb"],
-    "en": ["how", "what", "why", "when", "where", "which", "who", "can", "should", "is", "are"],
-    "fr": ["comment", "quoi", "pourquoi", "quand", "où", "quel", "qui"],
-    "es": ["cómo", "qué", "por qué", "cuándo", "dónde", "cuál", "quién"],
-    "it": ["come", "cosa", "perché", "quando", "dove", "quale", "chi"],
-    "nl": ["hoe", "wat", "waarom", "wanneer", "waar", "welke", "wie"],
-}
-
-# Intent detection patterns by language
-INTENT_PATTERNS = {
-    "de": {
-        "comparison": ["vs", "versus", "alternative", "unterschied", "vergleich", "oder"],
-        "transactional": ["buchen", "kaufen", "bestellen", "termin", "anfragen", "vereinbaren"],
-        "commercial": ["beste", "bester", "top", "kosten", "preis", "bewertung", "erfahrungen"],
-    },
-    "en": {
-        "comparison": ["vs", "versus", "alternative", "difference", "compared", "comparison"],
-        "transactional": ["book", "buy", "purchase", "order", "get", "hire", "sign up"],
-        "commercial": ["best", "top", "review", "pricing", "cost", "price", "rated", "compare"],
-    },
-    "default": {
-        "comparison": ["vs", "versus", "alternative", "difference", "compared"],
-        "transactional": ["book", "buy", "purchase", "order", "get"],
-        "commercial": ["best", "top", "review", "pricing", "cost"],
-    },
-}
-
 
 class KeywordGenerator:
     """
-    AI-powered keyword generator using Google Gemini.
+    AI-powered keyword generator using Google Gemini + SE Ranking.
 
     Features:
-    - Diverse keyword generation (question, commercial, transactional, etc.)
+    - AI keyword generation with diverse intents
+    - SE Ranking gap analysis (competitor keywords)
     - Company-fit scoring
     - Semantic clustering
     - Intelligent deduplication
-    - Optional SE Ranking volume data
+    - Multi-language support (any language)
     """
 
     def __init__(
@@ -80,7 +52,7 @@ class KeywordGenerator:
 
         Args:
             gemini_api_key: Google Gemini API key (or set GEMINI_API_KEY env var)
-            seranking_api_key: SE Ranking API key (optional, for volume data)
+            seranking_api_key: SE Ranking API key for gap analysis (optional)
             model: Gemini model to use (default: gemini-1.5-flash)
         """
         self.api_key = gemini_api_key or os.getenv("GEMINI_API_KEY")
@@ -93,16 +65,16 @@ class KeywordGenerator:
         self.model = genai.GenerativeModel(model)
         self.model_name = model
 
-        # SE Ranking client (optional)
+        # SE Ranking client (optional - for gap analysis)
         self.seranking_api_key = seranking_api_key or os.getenv("SERANKING_API_KEY")
         self.seranking_client = None
 
         if self.seranking_api_key:
             try:
-                from .seranking import SERankingClient
+                from .seranking_client import SEORankingAPIClient
 
-                self.seranking_client = SERankingClient(self.seranking_api_key)
-                logger.info("SE Ranking client initialized")
+                self.seranking_client = SEORankingAPIClient(self.seranking_api_key)
+                logger.info("SE Ranking client initialized for gap analysis")
             except Exception as e:
                 logger.warning(f"SE Ranking client initialization failed: {e}")
 
@@ -125,12 +97,25 @@ class KeywordGenerator:
         config = config or GenerationConfig()
 
         logger.info(f"Generating {config.target_count} keywords for {company_info.name}")
+        logger.info(f"Language: {config.language}, Region: {config.region}")
 
-        # Step 1: Generate raw keywords
-        keywords = await self._generate_keywords(company_info, config)
-        logger.info(f"Generated {len(keywords)} raw keywords")
+        all_keywords = []
 
-        if not keywords:
+        # Step 1: SE Ranking gap analysis (if available and company has URL)
+        gap_keywords = []
+        if self.seranking_client and company_info.url:
+            gap_keywords = await self._get_gap_keywords(company_info, config)
+            logger.info(f"Got {len(gap_keywords)} gap keywords from SE Ranking")
+            all_keywords.extend(gap_keywords)
+
+        # Step 2: AI keyword generation
+        # Generate more AI keywords if we didn't get enough from gap analysis
+        ai_target = max(config.target_count - len(gap_keywords), config.target_count // 2)
+        ai_keywords = await self._generate_ai_keywords(company_info, config, ai_target)
+        logger.info(f"Generated {len(ai_keywords)} AI keywords")
+        all_keywords.extend(ai_keywords)
+
+        if not all_keywords:
             return GenerationResult(
                 keywords=[],
                 clusters=[],
@@ -138,28 +123,26 @@ class KeywordGenerator:
                 processing_time_seconds=time.time() - start_time,
             )
 
-        # Step 2: Deduplicate
-        keywords, dup_count = self._deduplicate(keywords)
-        logger.info(f"After dedup: {len(keywords)} keywords ({dup_count} removed)")
+        # Step 3: Deduplicate
+        all_keywords, dup_count = self._deduplicate(all_keywords)
+        logger.info(f"After dedup: {len(all_keywords)} keywords ({dup_count} removed)")
 
-        # Step 3: Score keywords
-        keywords = await self._score_keywords(keywords, company_info)
-        logger.info(f"Scored {len(keywords)} keywords")
+        # Step 4: Score keywords
+        all_keywords = await self._score_keywords(all_keywords, company_info)
+        logger.info(f"Scored {len(all_keywords)} keywords")
 
-        # Step 4: Filter by score
-        keywords = [kw for kw in keywords if kw.get("score", 0) >= config.min_score]
-        logger.info(f"After score filter: {len(keywords)} keywords")
-
-        # Step 5: Fetch SE Ranking volume (optional)
-        if config.enable_volume and self.seranking_client:
-            keywords = await self._fetch_volume_data(keywords, config)
+        # Step 5: Filter by score
+        all_keywords = [kw for kw in all_keywords if kw.get("score", 0) >= config.min_score]
+        logger.info(f"After score filter: {len(all_keywords)} keywords")
 
         # Step 6: Cluster keywords
-        if config.enable_clustering and len(keywords) > 0:
-            keywords = await self._cluster_keywords(keywords, company_info, config.cluster_count)
+        if config.enable_clustering and len(all_keywords) > 0:
+            all_keywords = await self._cluster_keywords(
+                all_keywords, company_info, config.cluster_count
+            )
 
         # Step 7: Limit to target count
-        keywords = keywords[: config.target_count]
+        all_keywords = all_keywords[: config.target_count]
 
         # Build result
         keyword_objects = [
@@ -172,7 +155,7 @@ class KeywordGenerator:
                 volume=kw.get("volume", 0),
                 difficulty=kw.get("difficulty", 50),
             )
-            for kw in keywords
+            for kw in all_keywords
         ]
 
         # Build clusters
@@ -187,7 +170,9 @@ class KeywordGenerator:
         stats = self._calculate_statistics(keyword_objects, dup_count)
 
         processing_time = time.time() - start_time
-        logger.info(f"Generation complete: {len(keyword_objects)} keywords in {processing_time:.1f}s")
+        logger.info(
+            f"Generation complete: {len(keyword_objects)} keywords in {processing_time:.1f}s"
+        )
 
         return GenerationResult(
             keywords=keyword_objects,
@@ -196,8 +181,49 @@ class KeywordGenerator:
             processing_time_seconds=processing_time,
         )
 
-    async def _generate_keywords(
+    async def _get_gap_keywords(
         self, company_info: CompanyInfo, config: GenerationConfig
+    ) -> list[dict]:
+        """Get keywords from SE Ranking gap analysis."""
+        if not self.seranking_client or not company_info.url:
+            return []
+
+        try:
+            domain = self.seranking_client.extract_domain(company_info.url)
+            competitors = [
+                self.seranking_client.extract_domain(c) for c in company_info.competitors
+            ] if company_info.competitors else None
+
+            # Run gap analysis (sync, wrapped in thread)
+            gaps = await asyncio.to_thread(
+                self.seranking_client.analyze_content_gaps,
+                domain=domain,
+                competitors=competitors,
+                source=config.region,
+                max_competitors=3,
+            )
+
+            # Convert to our format
+            keywords = []
+            for gap in gaps:
+                keywords.append({
+                    "keyword": gap.get("keyword", ""),
+                    "intent": gap.get("intent", "informational"),
+                    "volume": gap.get("volume", 0),
+                    "difficulty": gap.get("difficulty", 50),
+                    "score": gap.get("aeo_score", 50),
+                    "is_question": gap.get("intent") == "question",
+                    "source": "gap_analysis",
+                })
+
+            return keywords
+
+        except Exception as e:
+            logger.error(f"Gap analysis failed: {e}")
+            return []
+
+    async def _generate_ai_keywords(
+        self, company_info: CompanyInfo, config: GenerationConfig, target_count: int
     ) -> list[dict]:
         """Generate keywords using Gemini in parallel batches."""
         # Build company context
@@ -220,11 +246,11 @@ class KeywordGenerator:
         company_context = "\n".join(context_parts)
 
         # Over-generate to account for deduplication and filtering
-        buffer_count = int(config.target_count * 2.5)
+        buffer_count = int(target_count * 2.5)
         batch_size = 15
         num_batches = (buffer_count + batch_size - 1) // batch_size
 
-        logger.info(f"Generating {buffer_count} keywords in {num_batches} batches")
+        logger.info(f"Generating {buffer_count} AI keywords in {num_batches} batches")
 
         # Generate batches in parallel
         tasks = [
@@ -256,25 +282,22 @@ class KeywordGenerator:
         region: str,
     ) -> list[dict]:
         """Generate a single batch of keywords."""
-        lang_code = language.lower()[:2] if language else "en"
-        lang_upper = language.upper()
-        region_upper = region.upper()
-
         # Calculate minimum counts per intent type
         question_min = max(3, int(batch_count * 0.25))
         commercial_min = max(3, int(batch_count * 0.25))
         transactional_min = max(2, int(batch_count * 0.15))
         comparison_min = max(1, int(batch_count * 0.10))
 
-        prompt = f"""Generate {batch_count} SEO keywords in {lang_upper} for {region_upper} market.
+        # Dynamic language handling - no hardcoded lists
+        prompt = f"""Generate {batch_count} SEO keywords in {language.upper()} language for the {region.upper()} market.
 
 {company_context}
 
 INTENT TYPES (strict counts):
-- {question_min}+ QUESTION: start with how/what/why/when/where/which
-- {transactional_min}+ TRANSACTIONAL: book, buy, order, get quote, sign up
-- {comparison_min}+ COMPARISON: vs, alternative, difference, compared to
-- {commercial_min}+ COMMERCIAL: best, top, review, pricing, cost
+- {question_min}+ QUESTION: keywords that start with question words in {language} (how, what, why, when, where, which, who, can, should, etc.)
+- {transactional_min}+ TRANSACTIONAL: keywords with buying/action intent (book, buy, order, get quote, sign up, etc.)
+- {comparison_min}+ COMPARISON: keywords comparing options (vs, versus, alternative, difference, compared to, etc.)
+- {commercial_min}+ COMMERCIAL: keywords with commercial intent (best, top, review, pricing, cost, etc.)
 - Rest INFORMATIONAL (max 25%): guides, benefits, tips
 
 KEYWORD LENGTH:
@@ -283,10 +306,11 @@ KEYWORD LENGTH:
 - 30% LONG keywords (6-7 words)
 
 RULES:
+- ALL keywords must be in {language.upper()} language
 - NO single-word keywords
 - NO keywords longer than 7 words
 - Be specific to company offerings
-- Include location terms ({region_upper})
+- Include location terms relevant to {region.upper()} market
 
 Return JSON: {{"keywords": [{{"keyword": "...", "intent": "question|transactional|comparison|commercial|informational", "is_question": true/false}}]}}"""
 
@@ -309,35 +333,27 @@ Return JSON: {{"keywords": [{{"keyword": "...", "intent": "question|transactiona
 
             # Process and validate keywords
             processed = []
-            question_words = QUESTION_STARTERS.get(lang_code, QUESTION_STARTERS["en"])
-
             for kw in keywords_data:
                 keyword_text = kw.get("keyword", "").strip()
                 if not keyword_text:
                     continue
 
-                # Validate and classify intent
-                validated_intent = self._classify_intent(
-                    keyword_text, kw.get("intent", ""), lang_code
-                )
+                # Use AI-provided intent, validate it
+                ai_intent = kw.get("intent", "informational").lower()
+                if ai_intent not in VALID_INTENTS:
+                    ai_intent = "informational"
 
-                # Auto-detect questions
                 is_question = kw.get("is_question", False)
-                if not is_question:
-                    kw_lower = keyword_text.lower()
-                    is_question = any(kw_lower.startswith(q) for q in question_words)
+                if is_question and ai_intent != "question":
+                    ai_intent = "question"
 
-                if is_question and validated_intent != "question":
-                    validated_intent = "question"
-
-                processed.append(
-                    {
-                        "keyword": keyword_text,
-                        "intent": validated_intent,
-                        "is_question": is_question,
-                        "score": 0,
-                    }
-                )
+                processed.append({
+                    "keyword": keyword_text,
+                    "intent": ai_intent,
+                    "is_question": is_question,
+                    "score": 0,
+                    "source": "ai_generated",
+                })
 
             logger.info(f"Batch {batch_num}/{total_batches}: {len(processed)} keywords")
             return processed
@@ -345,36 +361,6 @@ Return JSON: {{"keywords": [{{"keyword": "...", "intent": "question|transactiona
         except Exception as e:
             logger.error(f"Batch {batch_num} failed: {e}")
             raise
-
-    def _classify_intent(self, keyword: str, ai_intent: str, lang_code: str) -> str:
-        """Validate and classify keyword intent."""
-        # Use AI intent if valid
-        if ai_intent and ai_intent.lower() in VALID_INTENTS:
-            return ai_intent.lower()
-
-        # Get language-specific patterns
-        patterns = INTENT_PATTERNS.get(lang_code, INTENT_PATTERNS["default"])
-        question_words = QUESTION_STARTERS.get(lang_code, QUESTION_STARTERS["en"])
-
-        kw_lower = keyword.lower()
-
-        # Check question patterns
-        if any(kw_lower.startswith(q) for q in question_words):
-            return "question"
-
-        # Check comparison patterns
-        if any(pattern in kw_lower for pattern in patterns["comparison"]):
-            return "comparison"
-
-        # Check transactional patterns
-        if any(pattern in kw_lower for pattern in patterns["transactional"]):
-            return "transactional"
-
-        # Check commercial patterns
-        if any(pattern in kw_lower for pattern in patterns["commercial"]):
-            return "commercial"
-
-        return "informational"
 
     def _deduplicate(self, keywords: list[dict]) -> tuple[list[dict], int]:
         """Remove exact and near-duplicate keywords using O(n) token signature grouping."""
@@ -401,14 +387,19 @@ Return JSON: {{"keywords": [{{"keyword": "...", "intent": "question|transactiona
             tokens = tuple(sorted(keyword_text.split()))
             groups[tokens].append(kw)
 
-        # Keep highest scored keyword from each group
+        # Keep highest scored keyword from each group (or first if not scored yet)
         unique = []
         for token_group in groups.values():
             if len(token_group) == 1:
                 unique.append(token_group[0])
             else:
-                best = max(token_group, key=lambda x: x.get("score", 0))
-                unique.append(best)
+                # Prefer gap_analysis source, then highest score
+                gap_kws = [k for k in token_group if k.get("source") == "gap_analysis"]
+                if gap_kws:
+                    unique.append(gap_kws[0])
+                else:
+                    best = max(token_group, key=lambda x: x.get("score", 0))
+                    unique.append(best)
 
         duplicate_count = original_count - len(unique)
         return unique, duplicate_count
@@ -419,6 +410,14 @@ Return JSON: {{"keywords": [{{"keyword": "...", "intent": "question|transactiona
         """Score keywords for company fit using Gemini."""
         if not keywords:
             return []
+
+        # Keywords from gap analysis already have scores (aeo_score)
+        # Only score AI-generated keywords
+        ai_keywords = [kw for kw in keywords if kw.get("source") != "gap_analysis"]
+        gap_keywords = [kw for kw in keywords if kw.get("source") == "gap_analysis"]
+
+        if not ai_keywords:
+            return keywords
 
         # Build company context
         context_parts = [f"Company: {company_info.name}"]
@@ -433,30 +432,34 @@ Return JSON: {{"keywords": [{{"keyword": "...", "intent": "question|transactiona
 
         # Score in batches
         batch_size = 25
-        num_batches = (len(keywords) + batch_size - 1) // batch_size
+        num_batches = (len(ai_keywords) + batch_size - 1) // batch_size
 
         tasks = [
             self._score_batch(
-                keywords[i * batch_size : (i + 1) * batch_size], company_context, i + 1, num_batches
+                ai_keywords[i * batch_size : (i + 1) * batch_size],
+                company_context,
+                i + 1,
+                num_batches,
             )
             for i in range(num_batches)
         ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        all_scored = []
+        scored_ai = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 logger.error(f"Scoring batch {i + 1} failed: {result}")
                 # Keep keywords with default score
-                batch = keywords[i * batch_size : (i + 1) * batch_size]
+                batch = ai_keywords[i * batch_size : (i + 1) * batch_size]
                 for kw in batch:
                     kw["score"] = 50
-                all_scored.extend(batch)
+                scored_ai.extend(batch)
             elif result:
-                all_scored.extend(result)
+                scored_ai.extend(result)
 
-        # Sort by score
+        # Combine and sort by score
+        all_scored = gap_keywords + scored_ai
         all_scored.sort(key=lambda x: x.get("score", 0), reverse=True)
         return all_scored
 
@@ -569,38 +572,14 @@ Return ONLY a JSON object:
                     kw_text = kw["keyword"].lower().strip()
                     kw["cluster_name"] = cluster_map.get(kw_text, "Other")
 
-                logger.info(f"Clustered {len(keywords)} keywords into {len(clusters_data)} groups")
+                logger.info(
+                    f"Clustered {len(keywords)} keywords into {len(clusters_data)} groups"
+                )
 
         except Exception as e:
             logger.error(f"Clustering failed: {e}")
             for kw in keywords:
                 kw["cluster_name"] = "General"
-
-        return keywords
-
-    async def _fetch_volume_data(
-        self, keywords: list[dict], config: GenerationConfig
-    ) -> list[dict]:
-        """Fetch volume and difficulty data from SE Ranking."""
-        if not self.seranking_client:
-            return keywords
-
-        try:
-            keyword_texts = [kw["keyword"] for kw in keywords]
-            volume_data = await self.seranking_client.get_volume_batch(
-                keyword_texts, config.region
-            )
-
-            # Apply volume data
-            for kw in keywords:
-                kw_data = volume_data.get(kw["keyword"].lower(), {})
-                kw["volume"] = kw_data.get("volume", 0)
-                kw["difficulty"] = kw_data.get("difficulty", 50)
-
-            logger.info(f"Fetched volume data for {len(keywords)} keywords")
-
-        except Exception as e:
-            logger.error(f"SE Ranking volume fetch failed: {e}")
 
         return keywords
 
@@ -648,4 +627,3 @@ Return ONLY a JSON object:
             word_length_distribution=length_counts,
             duplicate_count=duplicate_count,
         )
-

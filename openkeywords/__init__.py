@@ -24,9 +24,12 @@ from .models import (
     KeywordStatistics,
 )
 from .generator import KeywordGenerator
+from .seranking_client import SEORankingAPIClient
+from .gap_analyzer import SEORankingAPI, AEOContentGapAnalyzer
 
 __version__ = "0.1.0"
 __all__ = [
+    # Main API
     "KeywordGenerator",
     "CompanyInfo",
     "GenerationConfig",
@@ -34,5 +37,8 @@ __all__ = [
     "Keyword",
     "Cluster",
     "KeywordStatistics",
+    # SE Ranking
+    "SEORankingAPIClient",
+    "SEORankingAPI",
+    "AEOContentGapAnalyzer",
 ]
-

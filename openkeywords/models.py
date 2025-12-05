@@ -28,9 +28,8 @@ class GenerationConfig(BaseModel):
     min_score: int = Field(default=40, description="Minimum company-fit score to include")
     enable_clustering: bool = Field(default=True, description="Group keywords into clusters")
     cluster_count: int = Field(default=6, description="Target number of clusters")
-    language: str = Field(default="english", description="Target language")
-    region: str = Field(default="us", description="Target region (country code)")
-    enable_volume: bool = Field(default=False, description="Fetch SE Ranking volume data")
+    language: str = Field(default="english", description="Target language (any language)")
+    region: str = Field(default="us", description="Target region/country code")
 
 
 class Keyword(BaseModel):
@@ -113,4 +112,5 @@ class GenerationResult(BaseModel):
     def to_dict(self) -> dict:
         """Convert to dictionary"""
         return self.model_dump()
+
 

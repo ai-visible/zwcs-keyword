@@ -53,8 +53,9 @@ def main():
 @click.option("--language", default="english", help="Target language")
 @click.option("--region", default="us", help="Target region (country code)")
 @click.option("--min-score", default=40, help="Minimum company-fit score")
-@click.option("--with-volume", is_flag=True, help="Fetch SE Ranking volume data")
+@click.option("--with-gaps", is_flag=True, help="Enable SE Ranking gap analysis (requires URL)")
 @click.option("--output", "-o", default=None, help="Output file (csv or json)")
+@click.option("--competitors", default=None, help="Competitor URLs (comma-separated)")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
 def generate(
     company: str,
@@ -70,7 +71,8 @@ def generate(
     language: str,
     region: str,
     min_score: int,
-    with_volume: bool,
+    with_gaps: bool,
+    competitors: str,
     output: str,
     verbose: bool,
 ):
@@ -93,9 +95,13 @@ def generate(
         console.print("Set it with: export GEMINI_API_KEY='your-key'")
         sys.exit(1)
 
-    if with_volume and not os.getenv("SERANKING_API_KEY"):
-        console.print("[yellow]Warning: SERANKING_API_KEY not set - volume data will be skipped[/yellow]")
-        with_volume = False
+    if with_gaps and not os.getenv("SERANKING_API_KEY"):
+        console.print("[yellow]Warning: SERANKING_API_KEY not set - gap analysis will be skipped[/yellow]")
+        with_gaps = False
+
+    if with_gaps and not url:
+        console.print("[yellow]Warning: --url required for gap analysis - skipping[/yellow]")
+        with_gaps = False
 
     # Build company info
     company_info = CompanyInfo(
@@ -107,6 +113,7 @@ def generate(
         products=products.split(",") if products else [],
         target_audience=audience,
         target_location=location,
+        competitors=competitors.split(",") if competitors else [],
     )
 
     # Build config
@@ -117,7 +124,6 @@ def generate(
         cluster_count=clusters,
         language=language,
         region=region,
-        enable_volume=with_volume,
     )
 
     console.print(f"\n[bold blue]🔑 OpenKeywords[/bold blue]")
@@ -164,12 +170,12 @@ def generate(
     table.add_column("Score", justify="right")
     table.add_column("Cluster", style="yellow")
 
-    if with_volume:
+    if with_gaps:
         table.add_column("Volume", justify="right")
         table.add_column("Difficulty", justify="right")
 
     for kw in result.keywords[:10]:
-        if with_volume:
+        if with_gaps:
             table.add_row(
                 kw.keyword,
                 kw.intent,
@@ -227,4 +233,5 @@ def check():
 
 if __name__ == "__main__":
     main()
+
 
