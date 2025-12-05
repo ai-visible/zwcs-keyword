@@ -45,7 +45,7 @@ class KeywordGenerator:
         self,
         gemini_api_key: Optional[str] = None,
         seranking_api_key: Optional[str] = None,
-        model: str = "gemini-1.5-flash",
+        model: str = "gemini-2.0-flash",
     ):
         """
         Initialize the keyword generator.
