@@ -904,13 +904,18 @@ class KeywordGenerator:
         """
         variations = []
         
-        # Extract products/services for targeting
-        products = company_info.products or []
+        # Extract SERVICES (solutions) for targeting - SKIP products (avoid product names)
         services = company_info.services or []
-        all_offerings = products + services
         
-        if not all_offerings:
+        # Also extract pain points and use cases for problem-focused keywords
+        pain_points = company_info.pain_points or []
+        use_cases = company_info.use_cases or []
+        
+        if not services:
             return variations
+        
+        # Use only top 3 services (most important ones)
+        all_offerings = services[:3]
         
         # Extract industry (clean to 2 words max)
         industry = None
@@ -928,10 +933,6 @@ class KeywordGenerator:
                 company_size = "mid-size companies"
             elif any(x in audience_lower for x in ["enterprise", "500+", "fortune 500", "large"]):
                 company_size = "enterprise"
-        
-        # Extract use cases (for long-tail variations)
-        use_cases = company_info.use_cases or []
-        pain_points = company_info.pain_points or []
         
         # Determine if we should add geo modifier (skip for US/global)
         use_geo = False
@@ -1063,31 +1064,32 @@ class KeywordGenerator:
                     })
             
             # ===== TRANSACTIONAL LONG-TAIL (4+ words) =====
+            # Use natural service-buying language: "get [service] services", "find [service] agency"
             transactional_patterns = []
             if industry:
                 transactional_patterns.extend([
-                    f"buy {clean_offering} for {industry}",
-                    f"get {clean_offering} for {industry}",
-                    f"order {clean_offering} for {industry}",
+                    f"get {clean_offering} services for {industry}",
+                    f"find {clean_offering} agency for {industry}",
+                    f"hire {clean_offering} consultant for {industry}",
                 ])
             if company_size:
                 transactional_patterns.extend([
-                    f"buy {clean_offering} for {company_size}",
-                    f"get {clean_offering} for {company_size}",
+                    f"get {clean_offering} services for {company_size}",
+                    f"find {clean_offering} agency for {company_size}",
                 ])
             if use_geo:
                 transactional_patterns.extend([
-                    f"buy {clean_offering}{geo_suffix}",
-                    f"get {clean_offering}{geo_suffix}",
+                    f"get {clean_offering} services{geo_suffix}",
+                    f"find {clean_offering} agency{geo_suffix}",
                 ])
             if industry and use_geo:
                 transactional_patterns.extend([
-                    f"buy {clean_offering} for {industry}{geo_suffix}",
-                    f"get {clean_offering} for {industry}{geo_suffix}",
+                    f"get {clean_offering} services for {industry}{geo_suffix}",
+                    f"hire {clean_offering} consultant for {industry}{geo_suffix}",
                 ])
             if industry and company_size:
                 transactional_patterns.extend([
-                    f"buy {clean_offering} for {industry} {company_size}",
+                    f"get {clean_offering} services for {industry} {company_size}",
                 ])
             
             for pattern in transactional_patterns:
