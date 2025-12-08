@@ -208,6 +208,15 @@ class KeywordGenerator:
                 processing_time_seconds=time.time() - start_time,
             )
 
+        # Step 2.5: Google Autocomplete (if enabled) - FREE keyword expansion
+        if config.enable_autocomplete and len(all_keywords) > 0:
+            autocomplete_keywords = await self._get_autocomplete_keywords(
+                company_info, config
+            )
+            if autocomplete_keywords:
+                all_keywords.extend(autocomplete_keywords)
+                logger.info(f"🔤 Added {len(autocomplete_keywords)} keywords from Google Autocomplete")
+
         # Step 3: Fast deduplicate (exact + token signature)
         all_keywords, dup_count = self._deduplicate_fast(all_keywords)
         logger.info(f"After fast dedup: {len(all_keywords)} keywords ({dup_count} removed)")
@@ -338,9 +347,18 @@ class KeywordGenerator:
             
             logger.info(f"✅ Generated {len(content_briefs)}/{len(top_keywords_for_briefs)} content briefs")
 
-        # Step 12: Generate citations (if enabled)
+        # Step 12: Google Trends enrichment (if enabled) - FREE trend data
+        trends_data_map = {}
+        if config.enable_google_trends and len(all_keywords) > 0:
+            trends_data_map = await self._enrich_with_trends(
+                [kw["keyword"] for kw in all_keywords[:30]],  # Top 30 only (rate limits)
+                config
+            )
+            logger.info(f"📊 Enriched {len(trends_data_map)} keywords with Google Trends data")
+
+        # Step 13: Generate citations (if enabled)
         from .citation_generator import CitationGenerator
-        from .models import ResearchData, ResearchSource, ContentBrief, CompleteSERPData, SERPRanking, FeaturedSnippetData, PAAQuestion
+        from .models import ResearchData, ResearchSource, ContentBrief, CompleteSERPData, SERPRanking, FeaturedSnippetData, PAAQuestion, GoogleTrendsData, AutocompleteData
         
         citation_generator = CitationGenerator()
 
@@ -541,6 +559,10 @@ class KeywordGenerator:
             # Only add research_data if it exists (not None)
             if final_research_data:
                 kw_dict["research_data"] = final_research_data
+            
+            # Add trends_data if available
+            if kw_text in trends_data_map:
+                kw_dict["trends_data"] = trends_data_map[kw_text]
             
             keyword_objects.append(Keyword(**kw_dict))
 
@@ -1683,6 +1705,132 @@ Return ONLY a JSON object:
         except (json.JSONDecodeError, IndexError) as e:
             logger.error(f"JSON parse error: {e}. Response: {response_text[:200]}")
             return {"keywords": []}
+
+    async def _get_autocomplete_keywords(
+        self,
+        company_info: CompanyInfo,
+        config: GenerationConfig,
+    ) -> list[dict]:
+        """
+        Get keyword suggestions from Google Autocomplete (FREE).
+        
+        Uses company name, products, and services as seed keywords.
+        Returns question keywords and long-tail variations.
+        """
+        from .autocomplete_analyzer import GoogleAutocompleteAnalyzer
+        
+        analyzer = GoogleAutocompleteAnalyzer(
+            country=config.region,
+            language=config.language.split()[0].lower(),  # "english" -> "en"
+            max_concurrent=5,
+        )
+        
+        # Generate seed keywords from company info
+        seed_keywords = []
+        if company_info.name:
+            seed_keywords.append(company_info.name.lower())
+        if company_info.products:
+            seed_keywords.extend([p.lower() for p in company_info.products[:3]])
+        if company_info.services:
+            seed_keywords.extend([s.lower() for s in company_info.services[:3]])
+        
+        # Limit to first 5 seeds to avoid rate limits
+        seed_keywords = list(set(seed_keywords))[:5]
+        
+        if not seed_keywords:
+            logger.warning("No seed keywords for autocomplete - skipping")
+            return []
+        
+        # Get autocomplete suggestions for each seed
+        all_suggestions = []
+        for seed in seed_keywords:
+            try:
+                result = await analyzer.get_suggestions(seed, include_questions=True)
+                if result.question_keywords:
+                    all_suggestions.extend(result.question_keywords[:15])
+                if result.long_tail_keywords:
+                    all_suggestions.extend(result.long_tail_keywords[:15])
+            except Exception as e:
+                logger.warning(f"Autocomplete failed for '{seed}': {e}")
+                continue
+        
+        # Deduplicate and limit
+        unique_suggestions = list(set(all_suggestions))[:config.autocomplete_expansion_limit]
+        
+        # Convert to keyword format
+        keyword_dicts = [
+            {
+                "keyword": kw,
+                "intent": "question" if "?" in kw or any(q in kw.lower() for q in ["how", "what", "why", "when", "where", "who"]) else "informational",
+                "score": 0,  # Will be scored later
+                "source": "autocomplete",
+                "is_question": "?" in kw or any(q in kw.lower() for q in ["how", "what", "why", "when", "where", "who"]),
+            }
+            for kw in unique_suggestions
+        ]
+        
+        return keyword_dicts
+    
+    async def _enrich_with_trends(
+        self,
+        keywords: list[str],
+        config: GenerationConfig,
+    ) -> dict[str, "GoogleTrendsData"]:
+        """
+        Enrich keywords with Google Trends data (FREE).
+        
+        Returns mapping of keyword -> GoogleTrendsData.
+        Limited to top keywords due to rate limits.
+        """
+        from .google_trends_analyzer import GoogleTrendsAnalyzer
+        from .models import GoogleTrendsData
+        
+        analyzer = GoogleTrendsAnalyzer(
+            country=config.region.upper(),
+            language=config.language.split()[0].lower(),
+            timeframe="today 12-m",
+            max_concurrent=3,  # Be gentle with Google
+        )
+        
+        trends_map = {}
+        
+        # Process in batches of 5 (pytrends limitation)
+        batch_size = 5
+        for i in range(0, len(keywords), batch_size):
+            batch = keywords[i:i+batch_size]
+            
+            try:
+                trend_data = await analyzer.analyze_keywords(batch)
+                
+                for kw, data in trend_data.items():
+                    if data.error:
+                        logger.debug(f"Trends error for '{kw}': {data.error}")
+                        continue
+                    
+                    # Convert to GoogleTrendsData model
+                    trends_map[kw] = GoogleTrendsData(
+                        keyword=kw,
+                        current_interest=data.current_interest,
+                        avg_interest=data.avg_interest,
+                        peak_interest=data.peak_interest,
+                        trend_direction=data.trend_direction,
+                        trend_percentage=data.trend_percentage,
+                        is_seasonal=data.is_seasonal,
+                        peak_months=data.peak_months,
+                        rising_related=[r.get("query", r) if isinstance(r, dict) else r for r in data.rising_related[:10]],
+                        top_related=[r.get("query", r) if isinstance(r, dict) else r for r in data.top_related[:10]],
+                        top_regions=[{"region": r.get("geoName", ""), "value": r.get("value", 0)} for r in data.top_regions[:5]] if data.top_regions else [],
+                    )
+                
+                # Add small delay between batches to avoid rate limits
+                if i + batch_size < len(keywords):
+                    await asyncio.sleep(2)
+                    
+            except Exception as e:
+                logger.warning(f"Trends batch {i//batch_size + 1} failed: {e}")
+                continue
+        
+        return trends_map
 
     def _calculate_statistics(
         self, keywords: list[Keyword], duplicate_count: int

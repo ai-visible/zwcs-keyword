@@ -86,6 +86,19 @@ class GenerationConfig(BaseModel):
         default=5,
         description="Maximum research sources to capture per keyword"
     )
+    # Google Trends & Autocomplete (FREE features)
+    enable_google_trends: bool = Field(
+        default=False,
+        description="Enrich keywords with Google Trends data (seasonality, rising queries, regional interest)"
+    )
+    enable_autocomplete: bool = Field(
+        default=False,
+        description="Add keyword suggestions from Google Autocomplete (real user queries, question keywords)"
+    )
+    autocomplete_expansion_limit: int = Field(
+        default=50,
+        description="Maximum autocomplete suggestions to add per company"
+    )
 
 
 # ========== ENHANCED DATA CAPTURE MODELS ==========
@@ -239,6 +252,41 @@ class CompleteSERPData(BaseModel):
     avg_domain_authority: float = Field(default=0.0, description="Average domain authority")
     
     # Ensure None values are converted to defaults
+
+
+class GoogleTrendsData(BaseModel):
+    """Google Trends data for a keyword."""
+    
+    keyword: str = Field(..., description="The keyword")
+    
+    # Interest level (0-100, relative popularity)
+    current_interest: int = Field(default=0, description="Current interest level (0-100)")
+    avg_interest: float = Field(default=0.0, description="Average interest over period")
+    peak_interest: int = Field(default=0, description="Peak interest")
+    
+    # Trend direction
+    trend_direction: str = Field(default="stable", description="Trend direction: rising, falling, stable")
+    trend_percentage: float = Field(default=0.0, description="% change vs previous period")
+    
+    # Seasonality
+    is_seasonal: bool = Field(default=False, description="Has seasonal pattern")
+    peak_months: list[str] = Field(default_factory=list, description="Peak months for seasonal keywords")
+    
+    # Rising queries (GOLD!)
+    rising_related: list[str] = Field(default_factory=list, description="Rising related queries (trending)")
+    top_related: list[str] = Field(default_factory=list, description="Top related queries")
+    
+    # Regional data
+    top_regions: list[dict] = Field(default_factory=list, description="Top regions by interest")
+
+
+class AutocompleteData(BaseModel):
+    """Google Autocomplete suggestions for a seed keyword."""
+    
+    seed_keyword: str = Field(..., description="The seed keyword used")
+    suggestions: list[str] = Field(default_factory=list, description="All autocomplete suggestions")
+    question_keywords: list[str] = Field(default_factory=list, description="Question-based keywords")
+    long_tail_keywords: list[str] = Field(default_factory=list, description="Long-tail variations (3+ words)")
     def __init__(self, **data):
         if "avg_domain_authority" in data and data["avg_domain_authority"] is None:
             data["avg_domain_authority"] = 0.0
@@ -282,6 +330,8 @@ class Keyword(BaseModel):
     research_data: Optional[ResearchData] = Field(default=None, description="Full research data with sources")
     content_brief: Optional[ContentBrief] = Field(default=None, description="Content briefing")
     serp_data: Optional[CompleteSERPData] = Field(default=None, description="Complete SERP data")
+    trends_data: Optional[GoogleTrendsData] = Field(default=None, description="Google Trends data (seasonality, rising queries)")
+    autocomplete_data: Optional[AutocompleteData] = Field(default=None, description="Google Autocomplete suggestions")
     
     # Quick access fields (for CSV export)
     research_summary: Optional[str] = Field(default=None, description="Top 3 research quotes summary")
