@@ -69,7 +69,8 @@ async def follow_redirect_to_real_url(redirect_url: str, timeout: float = 5.0) -
     
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
-            response = await client.head(redirect_url, allow_redirects=True)
+            # Use HEAD request first (faster, no body)
+            response = await client.head(redirect_url)
             final_url = str(response.url)
             
             # If we got a real URL (not another redirect), return it
@@ -77,9 +78,11 @@ async def follow_redirect_to_real_url(redirect_url: str, timeout: float = 5.0) -
                 logger.debug(f"Resolved redirect: {redirect_url[:50]}... -> {final_url[:80]}...")
                 return final_url
             
-            # If still a redirect, try GET request
-            response = await client.get(redirect_url, allow_redirects=True)
+            # If still a redirect, try GET request (some servers don't redirect HEAD)
+            response = await client.get(redirect_url)
             final_url = str(response.url)
+            if not final_url.startswith("https://vertexaisearch.cloud.google.com/"):
+                logger.debug(f"Resolved redirect (GET): {redirect_url[:50]}... -> {final_url[:80]}...")
             return final_url
             
     except Exception as e:

@@ -185,14 +185,16 @@ class GeminiSerpAnalyzer:
                 # Craft prompt - Gemini will use Google Search grounding
                 prompt = f"""Search Google for: "{keyword}" (country: {self.country}, language: {self.language})
 
-Analyze the COMPLETE SERP and provide detailed analysis in JSON format:
+Analyze the COMPLETE SERP and provide detailed analysis in JSON format.
+
+CRITICAL: Extract REAL URLs from the Google Search results. Do NOT use redirect URLs or proxy URLs. Extract the actual destination URLs (e.g., https://example.com/article, NOT https://vertexaisearch.cloud.google.com/...).
 
 1. All top 10 organic results with:
    - position (1-10)
-   - url (full URL)
+   - url (REAL full URL - extract from search results, not redirect URLs)
    - title (page title)
    - description (meta description)
-   - domain (domain name)
+   - domain (domain name extracted from real URL)
    - estimated word count
    - page type (listicle, comparison, how-to, guide, product_page, etc.)
    - publish date (if available)
@@ -201,13 +203,13 @@ Analyze the COMPLETE SERP and provide detailed analysis in JSON format:
 2. Featured snippet (if present):
    - type (paragraph, list, table, video)
    - content (snippet text)
-   - source_url (URL)
+   - source_url (REAL URL - extract from search results)
    - source_domain (domain)
 
 3. People Also Ask questions (if present):
    - question (the question)
    - answer_snippet (answer shown)
-   - source_url (URL)
+   - source_url (REAL URL - extract from search results)
    - source_domain (domain)
 
 4. Related searches
@@ -223,11 +225,11 @@ Analyze the COMPLETE SERP and provide detailed analysis in JSON format:
 Return JSON:
 {{
   "organic_results": [
-    {{"position": 1, "url": "https://...", "title": "...", "description": "...", "domain": "...", "estimated_word_count": 3200, "page_type": "comparison", "publish_date": "2024-01-15", "last_updated": "2024-11-20"}},
+    {{"position": 1, "url": "https://example.com/article", "title": "...", "description": "...", "domain": "example.com", "estimated_word_count": 3200, "page_type": "comparison", "publish_date": "2024-01-15", "last_updated": "2024-11-20"}},
     ...
   ],
-  "featured_snippet": {{"type": "paragraph", "content": "...", "source_url": "https://...", "source_domain": "..."}} or null,
-  "paa_questions": [{{"question": "...", "answer_snippet": "...", "source_url": "https://...", "source_domain": "..."}}, ...],
+  "featured_snippet": {{"type": "paragraph", "content": "...", "source_url": "https://example.com/article", "source_domain": "example.com"}} or null,
+  "paa_questions": [{{"question": "...", "answer_snippet": "...", "source_url": "https://example.com/article", "source_domain": "example.com"}}, ...],
   "related_searches": ["...", ...],
   "avg_word_count": 2640,
   "common_content_types": ["comparison", "listicle"],
@@ -243,6 +245,8 @@ Return JSON:
   "volume_reasoning": "brief explanation"
 }}
 
+IMPORTANT: All URLs must be REAL destination URLs (e.g., https://example.com/page), NOT redirect URLs or proxy URLs.
+
 Return ONLY valid JSON."""
 
                 # Make async request using NEW SDK (same as ResearchEngine)
@@ -257,6 +261,7 @@ Return ONLY valid JSON."""
                 )
                 
                 # Extract real URLs from grounding metadata BEFORE parsing JSON
+                # Map redirect URLs to real URLs from grounding chunks
                 real_urls_map = {}
                 if hasattr(response, 'candidates') and response.candidates:
                     candidate = response.candidates[0]
@@ -266,19 +271,23 @@ Return ONLY valid JSON."""
                             try:
                                 if hasattr(chunk, 'web') and chunk.web:
                                     redirect_url = None
+                                    real_url = None
+                                    
+                                    # Get redirect URL
                                     if hasattr(chunk.web, 'uri'):
                                         redirect_url = chunk.web.uri
                                     elif hasattr(chunk.web, 'url'):
                                         redirect_url = chunk.web.url
                                     
-                                    if redirect_url and redirect_url.startswith("https://vertexaisearch.cloud.google.com/"):
-                                        # Try to get real URL from chunk metadata if available
-                                        # Sometimes the real URL is in chunk.web.title or other fields
-                                        if hasattr(chunk.web, 'title'):
-                                            # The title might contain hints about the real domain
-                                            pass
-                                        # Store redirect URL for later resolution
-                                        real_urls_map[redirect_url] = redirect_url  # Will be resolved later
+                                    # Try to extract real URL from grounding chunk
+                                    # Check if there's a title that might contain domain info
+                                    if hasattr(chunk.web, 'title') and chunk.web.title:
+                                        # Sometimes the title contains the domain
+                                        title = chunk.web.title
+                                    
+                                    # Store mapping: redirect URL -> will be resolved later
+                                    if redirect_url:
+                                        real_urls_map[redirect_url] = redirect_url  # Will be resolved by _build_complete_serp_data
                             except Exception as e:
                                 logger.debug(f"Error extracting grounding URL: {e}")
                 
