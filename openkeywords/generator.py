@@ -165,25 +165,55 @@ class KeywordGenerator:
 
         all_keywords = []
 
-        # Step 1: Deep Research (if enabled) - Reddit, Quora, forums
-        research_keywords = []
+        # PARALLEL STEP 1: Run Research, SERanking, and Autocomplete simultaneously
+        # These are independent operations that can run in parallel for speed
+        parallel_tasks = []
+        
+        # Task 1: Deep Research (if enabled) - Reddit, Quora, forums
         if config.enable_research:
-            # Research focus: target 70% from research, otherwise 50%
             research_ratio = 0.7 if config.research_focus else 0.5
             research_target = int(config.target_count * research_ratio)
-            research_keywords = await self._get_research_keywords(company_info, config, research_target)
-            logger.info(f"🔍 Deep research found {len(research_keywords)} hyper-niche keywords")
-            all_keywords.extend(research_keywords)
-
-        # Step 2: SE Ranking gap analysis (if available and company has URL)
-        gap_keywords = []
+            parallel_tasks.append(('research', self._get_research_keywords(company_info, config, research_target)))
+        
+        # Task 2: SE Ranking gap analysis (if available and company has URL)
         if self.seranking_client and company_info.url:
-            gap_keywords = await self._get_gap_keywords(company_info, config)
-            logger.info(f"Got {len(gap_keywords)} gap keywords from SE Ranking")
-            all_keywords.extend(gap_keywords)
+            parallel_tasks.append(('gap', self._get_gap_keywords(company_info, config)))
+        
+        # Task 3: Google Autocomplete (if enabled) - can run in parallel with seed keywords
+        if config.enable_autocomplete:
+            # Use company name/description as seed for autocomplete
+            parallel_tasks.append(('autocomplete', self._get_autocomplete_keywords(company_info, config)))
+        
+        # Execute all parallel tasks simultaneously
+        logger.info(f"🚀 Running {len(parallel_tasks)} keyword sources in parallel...")
+        parallel_results = await asyncio.gather(*[task[1] for task in parallel_tasks], return_exceptions=True)
+        
+        # Process results
+        research_keywords = []
+        gap_keywords = []
+        autocomplete_keywords = []
+        
+        for (task_type, _), result in zip(parallel_tasks, parallel_results):
+            if isinstance(result, Exception):
+                logger.warning(f"⚠️  {task_type} task failed: {result}")
+                continue
+            
+            if task_type == 'research':
+                research_keywords = result
+                logger.info(f"🔍 Deep research found {len(research_keywords)} hyper-niche keywords")
+                all_keywords.extend(research_keywords)
+            elif task_type == 'gap':
+                gap_keywords = result
+                logger.info(f"📊 SE Ranking gap analysis found {len(gap_keywords)} competitor keywords")
+                all_keywords.extend(gap_keywords)
+            elif task_type == 'autocomplete':
+                autocomplete_keywords = result or []
+                if autocomplete_keywords:
+                    logger.info(f"🔤 Google Autocomplete found {len(autocomplete_keywords)} real user queries")
+                    all_keywords.extend(autocomplete_keywords)
 
-        # Step 3: AI keyword generation (fill remaining slots)
-        existing_count = len(research_keywords) + len(gap_keywords)
+        # Step 2: AI keyword generation (fill remaining slots)
+        existing_count = len(research_keywords) + len(gap_keywords) + len(autocomplete_keywords)
         # In research focus mode, only generate AI keywords if we don't have enough research
         if config.research_focus:
             # Only fill gap if research didn't return enough
@@ -195,10 +225,10 @@ class KeywordGenerator:
         
         if ai_target > 0:
             ai_keywords = await self._generate_ai_keywords(company_info, config, ai_target)
-            logger.info(f"Generated {len(ai_keywords)} AI keywords")
+            logger.info(f"🤖 Generated {len(ai_keywords)} AI keywords")
             all_keywords.extend(ai_keywords)
         else:
-            logger.info("Skipping AI generation - research provided enough keywords")
+            logger.info("✅ Skipping AI generation - parallel sources provided enough keywords")
 
         if not all_keywords:
             return GenerationResult(
@@ -207,15 +237,6 @@ class KeywordGenerator:
                 statistics=KeywordStatistics(total=0),
                 processing_time_seconds=time.time() - start_time,
             )
-
-        # Step 2.5: Google Autocomplete (if enabled) - FREE keyword expansion
-        if config.enable_autocomplete and len(all_keywords) > 0:
-            autocomplete_keywords = await self._get_autocomplete_keywords(
-                company_info, config
-            )
-            if autocomplete_keywords:
-                all_keywords.extend(autocomplete_keywords)
-                logger.info(f"🔤 Added {len(autocomplete_keywords)} keywords from Google Autocomplete")
 
         # Step 3: Fast deduplicate (exact + token signature)
         all_keywords, dup_count = self._deduplicate_fast(all_keywords)
