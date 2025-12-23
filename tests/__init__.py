@@ -1,2 +1,0 @@
-# OpenKeywords Tests
-
