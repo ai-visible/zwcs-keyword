@@ -24,6 +24,13 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
+# Import both old and new pipeline for backward compatibility
+try:
+    from run_pipeline import run_pipeline
+    USE_NEW_PIPELINE = True
+except ImportError:
+    USE_NEW_PIPELINE = False
+
 from openkeywords import (
     CompanyInfo,
     GenerationConfig,
@@ -459,6 +466,66 @@ async def run_generation_job(job_id: str, request: KeywordRequest):
     try:
         job_store.update(job_id, status=JobStatus.RUNNING)
 
+        # Use new pipeline if available and company_url is provided
+        if USE_NEW_PIPELINE and request.company_url:
+            # Run new staged pipeline
+            result = await run_pipeline(
+                company_url=str(request.company_url),
+                company_name=request.company_name,
+                target_count=request.target_count,
+                language=request.language,
+                region=request.region,
+                enable_research=request.enable_research or request.research_focus,
+                enable_clustering=True,
+                min_score=request.min_score,
+                cluster_count=request.cluster_count,
+            )
+
+            # Convert new pipeline result to API response format
+            result_dict = {
+                "keywords": [
+                    {
+                        "keyword": kw.get("keyword", ""),
+                        "intent": kw.get("intent", "informational"),
+                        "score": kw.get("score", 0),
+                        "cluster_name": kw.get("cluster_name"),
+                        "is_question": kw.get("is_question", False),
+                        "volume": 0,
+                        "difficulty": 50,
+                        "source": kw.get("source", "ai_generated"),
+                        "aeo_opportunity": 0,
+                        "has_featured_snippet": False,
+                        "has_paa": False,
+                        "serp_analyzed": False,
+                    }
+                    for kw in result.get("keywords", [])
+                ],
+                "clusters": [
+                    {"name": c.get("name", ""), "keywords": c.get("keywords", []), "count": len(c.get("keywords", []))}
+                    for c in result.get("clusters", [])
+                ],
+                "statistics": {
+                    "total": result.get("statistics", {}).get("total_keywords", 0),
+                    "avg_score": result.get("statistics", {}).get("avg_score", 0),
+                    "intent_breakdown": result.get("intent_breakdown", {}),
+                    "source_breakdown": result.get("source_breakdown", {}),
+                    "duplicate_count": result.get("statistics", {}).get("duplicates_removed", 0),
+                },
+                "processing_time_seconds": result.get("statistics", {}).get("duration_seconds", 0),
+            }
+
+            job_store.update(
+                job_id,
+                status=JobStatus.COMPLETED,
+                result=result_dict,
+                progress={
+                    "keywords_generated": len(result.get("keywords", [])),
+                    "target_count": request.target_count,
+                },
+            )
+            return
+
+        # Fallback to old pipeline
         # Build CompanyInfo
         company_info = CompanyInfo(
             name=request.company_name,
