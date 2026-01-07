@@ -24,19 +24,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
-# Import both old and new pipeline for backward compatibility
-try:
-    from run_pipeline import run_pipeline
-    USE_NEW_PIPELINE = True
-except ImportError:
-    USE_NEW_PIPELINE = False
-
-from openkeywords import (
-    CompanyInfo,
-    GenerationConfig,
-    GenerationResult,
-    KeywordGenerator,
-)
+from run_pipeline import run_pipeline
 
 # =============================================================================
 # Pydantic Models for API
@@ -60,215 +48,116 @@ class KeywordRequest(BaseModel):
         min_length=1,
         max_length=200,
         description="Company name",
-        json_schema_extra={"example": "Acme Software"},
+        examples=["Stripe"],
     )
     company_url: Optional[HttpUrl] = Field(
         default=None,
-        description="Company website URL (enables gap analysis)",
-        json_schema_extra={"example": "https://example.com"},
+        description="Company website URL for deep analysis",
+        examples=["https://stripe.com"],
     )
-    industry: Optional[str] = Field(
-        default=None,
-        max_length=100,
-        description="Industry category",
-        json_schema_extra={"example": "B2B SaaS"},
-    )
-    description: Optional[str] = Field(
-        default=None,
-        max_length=2000,
-        description="Company description",
-        json_schema_extra={"example": "AI-powered marketing automation platform"},
-    )
-    services: List[str] = Field(
-        default=[],
-        max_length=20,
-        description="Services offered (max 20)",
-        json_schema_extra={"example": ["marketing automation", "analytics"]},
-    )
-    products: List[str] = Field(
-        default=[],
-        max_length=20,
-        description="Products offered (max 20)",
-        json_schema_extra={"example": ["Marketing Hub", "Analytics Dashboard"]},
-    )
-    target_audience: Optional[str] = Field(
-        default=None,
-        max_length=500,
-        description="Target audience description",
-        json_schema_extra={"example": "SMB marketing teams"},
-    )
-    target_location: Optional[str] = Field(
-        default=None,
-        max_length=100,
-        description="Target location/region",
-        json_schema_extra={"example": "United States"},
-    )
-    competitors: List[str] = Field(
-        default=[],
-        max_length=10,
-        description="Competitor URLs (max 10)",
-        json_schema_extra={"example": ["https://competitor1.com"]},
-    )
-    # Generation config
     target_count: int = Field(
         default=50,
         ge=10,
         le=500,
-        description="Number of keywords to generate (10-500)",
+        description="Target number of keywords to generate",
     )
-    cluster_count: int = Field(
-        default=6,
-        ge=1,
-        le=20,
-        description="Number of keyword clusters (1-20)",
+    language: str = Field(
+        default="en",
+        min_length=2,
+        max_length=5,
+        description="Target language code",
+    )
+    region: str = Field(
+        default="us",
+        min_length=2,
+        max_length=5,
+        description="Target region/market code",
+    )
+    enable_research: bool = Field(
+        default=False,
+        description="Enable deep research (Reddit, Quora, forums)",
     )
     min_score: int = Field(
         default=40,
         ge=0,
         le=100,
-        description="Minimum company-fit score (0-100)",
+        description="Minimum company-fit score",
     )
-    language: str = Field(
-        default="english",
-        max_length=50,
-        description="Target language",
-        json_schema_extra={"example": "english"},
-    )
-    region: str = Field(
-        default="us",
-        max_length=10,
-        pattern=r"^[a-z]{2}$",
-        description="Target region code (ISO 3166-1 alpha-2)",
-        json_schema_extra={"example": "us"},
-    )
-    # Feature flags
-    enable_research: bool = Field(
-        default=False,
-        description="Enable deep research (Reddit, Quora, forums)",
-    )
-    research_focus: bool = Field(
-        default=False,
-        description="Agency mode: 70%+ research keywords, strict filtering",
-    )
-    enable_serp_analysis: bool = Field(
-        default=False,
-        description="Enable SERP analysis for AEO scoring",
-    )
-    serp_sample_size: int = Field(
-        default=15,
-        ge=1,
-        le=50,
-        description="Keywords to SERP analyze (1-50)",
-    )
-    enable_volume_lookup: bool = Field(
-        default=False,
-        description="Get real search volumes from DataForSEO",
-    )
-    analyze_company_first: bool = Field(
-        default=False,
-        description="Auto-analyze company website for rich context (requires company_url)",
+    cluster_count: int = Field(
+        default=6,
+        ge=2,
+        le=20,
+        description="Number of keyword clusters to create",
     )
 
-    @field_validator("services", "products")
+    @field_validator("company_name")
     @classmethod
-    def validate_list_items(cls, v: List[str]) -> List[str]:
-        """Validate list items are non-empty."""
-        return [item.strip() for item in v if item and item.strip()]
-
-    @field_validator("competitors")
-    @classmethod
-    def validate_competitors(cls, v: List[str]) -> List[str]:
-        """Validate competitor URLs."""
-        validated = []
-        for url in v:
-            url = url.strip()
-            if url:
-                if not url.startswith(("http://", "https://")):
-                    url = f"https://{url}"
-                validated.append(url)
-        return validated[:10]  # Max 10 competitors
+    def validate_company_name(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Company name cannot be empty")
+        return v.strip()
 
 
-class KeywordResponse(BaseModel):
-    """Response model for a single keyword."""
+class KeywordResult(BaseModel):
+    """Individual keyword in results."""
 
     keyword: str
     intent: str
     score: int
     cluster_name: Optional[str] = None
     is_question: bool = False
-    volume: int = 0
-    difficulty: int = 50
     source: str = "ai_generated"
-    aeo_opportunity: int = 0
-    has_featured_snippet: bool = False
-    has_paa: bool = False
-    serp_analyzed: bool = False
 
 
-class ClusterResponse(BaseModel):
-    """Response model for a keyword cluster."""
+class ClusterResult(BaseModel):
+    """Keyword cluster in results."""
 
     name: str
     keywords: List[str]
     count: int
 
 
-class StatisticsResponse(BaseModel):
-    """Response model for generation statistics."""
+class StatisticsResult(BaseModel):
+    """Statistics about generated keywords."""
 
     total: int
     avg_score: float
-    intent_breakdown: Dict[str, int]
-    source_breakdown: Dict[str, int]
-    duplicate_count: int = 0
+    intent_breakdown: Dict[str, int] = {}
+    source_breakdown: Dict[str, int] = {}
 
 
-class GenerationResultResponse(BaseModel):
-    """Response model for generation result."""
+class GenerationResponse(BaseModel):
+    """Response model for keyword generation."""
 
-    keywords: List[KeywordResponse]
-    clusters: List[ClusterResponse]
-    statistics: StatisticsResponse
+    keywords: List[KeywordResult]
+    clusters: List[ClusterResult]
+    statistics: StatisticsResult
     processing_time_seconds: float
 
 
 class JobResponse(BaseModel):
-    """Response model for job creation."""
-
-    job_id: str = Field(..., description="Unique job identifier")
-    status: JobStatus = Field(..., description="Current job status")
-    message: str = Field(..., description="Status message")
-    created_at: str = Field(..., description="Job creation timestamp")
-
-
-class JobStatusResponse(BaseModel):
-    """Response model for job status check."""
+    """Response model for job status."""
 
     job_id: str
     status: JobStatus
-    progress: Optional[Dict[str, Any]] = Field(None, description="Progress details")
-    result: Optional[GenerationResultResponse] = Field(
-        None, description="Generation result (when completed)"
-    )
-    error: Optional[str] = Field(None, description="Error message (when failed)")
     created_at: str
-    updated_at: str
+    completed_at: Optional[str] = None
+    progress: Optional[Dict[str, Any]] = None
+    result: Optional[GenerationResponse] = None
+    error: Optional[str] = None
 
 
 class HealthResponse(BaseModel):
     """Health check response."""
 
     status: str = "healthy"
-    version: str = "1.0.0"
-    timestamp: str
+    version: str = "2.0.0"
     gemini_configured: bool = False
-    seranking_configured: bool = False
-    dataforseo_configured: bool = False
+    timestamp: str
 
 
 # =============================================================================
-# In-Memory Job Store (replace with Redis/DB in production)
+# Job Store (In-Memory)
 # =============================================================================
 
 
@@ -276,59 +165,54 @@ class JobStore:
     """Thread-safe in-memory job store."""
 
     def __init__(self):
-        self._jobs: Dict[str, dict] = {}
+        self._jobs: Dict[str, Dict[str, Any]] = {}
         self._lock = threading.Lock()
 
-    def create(self, job_id: str, request: KeywordRequest) -> dict:
+    def create(self, job_id: str, request: KeywordRequest) -> Dict[str, Any]:
         job = {
             "job_id": job_id,
             "status": JobStatus.PENDING,
+            "created_at": datetime.utcnow().isoformat(),
+            "completed_at": None,
             "request": request.model_dump(),
-            "progress": {"keywords_generated": 0, "target_count": request.target_count},
+            "progress": None,
             "result": None,
             "error": None,
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
         }
         with self._lock:
             self._jobs[job_id] = job
         return job
 
-    def get(self, job_id: str) -> Optional[dict]:
+    def get(self, job_id: str) -> Optional[Dict[str, Any]]:
         with self._lock:
             return self._jobs.get(job_id)
 
-    def update(self, job_id: str, **kwargs) -> Optional[dict]:
+    def update(self, job_id: str, **kwargs) -> bool:
         with self._lock:
-            if job_id in self._jobs:
-                self._jobs[job_id].update(kwargs)
-                self._jobs[job_id]["updated_at"] = datetime.utcnow().isoformat()
-                return self._jobs[job_id]
-        return None
-
-    def list_all(self, limit: int = 50) -> List[dict]:
-        with self._lock:
-            jobs = sorted(
-                self._jobs.values(), key=lambda x: x["created_at"], reverse=True
-            )
-            return jobs[:limit]
+            if job_id not in self._jobs:
+                return False
+            self._jobs[job_id].update(kwargs)
+            return True
 
     def delete(self, job_id: str) -> bool:
         with self._lock:
             if job_id in self._jobs:
                 del self._jobs[job_id]
                 return True
-        return False
+            return False
+
+    def list_all(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            return list(self._jobs.values())
 
     def cleanup_old_jobs(self, max_age_hours: int = 24, max_jobs: int = 1000) -> int:
-        """Remove old jobs to prevent memory leak. Returns count of removed jobs."""
-        from datetime import datetime, timedelta
+        """Remove old jobs to prevent memory leak."""
+        from datetime import timedelta
 
         cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
         removed = 0
 
         with self._lock:
-            # Remove jobs older than max_age_hours
             old_jobs = [
                 job_id for job_id, job in self._jobs.items()
                 if datetime.fromisoformat(job["created_at"]) < cutoff
@@ -337,7 +221,6 @@ class JobStore:
                 del self._jobs[job_id]
                 removed += 1
 
-            # If still over max_jobs, remove oldest
             if len(self._jobs) > max_jobs:
                 sorted_jobs = sorted(
                     self._jobs.items(),
@@ -352,7 +235,7 @@ class JobStore:
 
 
 def _validate_job_id(job_id: str) -> str:
-    """Validate job_id is a valid UUID to prevent injection."""
+    """Validate job_id is a valid UUID."""
     try:
         uuid.UUID(job_id)
         return job_id
@@ -363,7 +246,6 @@ def _validate_job_id(job_id: str) -> str:
 def _sanitize_csv_value(value: Any) -> str:
     """Sanitize value for CSV to prevent formula injection."""
     str_val = str(value)
-    # Prefix with single quote if starts with formula characters
     if str_val and str_val[0] in ('=', '+', '-', '@', '\t', '\r'):
         return f"'{str_val}"
     return str_val
@@ -372,379 +254,192 @@ def _sanitize_csv_value(value: Any) -> str:
 # Global job store
 job_store = JobStore()
 
-
 # =============================================================================
 # FastAPI Application
 # =============================================================================
 
 app = FastAPI(
     title="OpenKeywords API",
-    description="""
-## AI-Powered SEO Keyword Generation
-
-OpenKeywords generates high-quality, clustered SEO keywords using Google's Gemini AI.
-
-### Features
-
-- 🤖 **AI Generation**: Gemini-powered keyword generation with diverse intents
-- 🔍 **Deep Research**: Reddit, Quora, forum analysis for hyper-niche keywords
-- 📊 **Gap Analysis**: SE Ranking competitor keyword analysis
-- 📈 **SERP Analysis**: AEO opportunity scoring with featured snippet detection
-- 🎯 **Company-Fit Scoring**: Keywords scored 0-100 for relevance
-- 📦 **Semantic Clustering**: Auto-grouped keywords by topic
-
-### Pipeline Stages
-
-1. **Company Analysis** (optional) - Auto-extract company context from website
-2. **Research** (optional) - Deep dive into Reddit, Quora, forums
-3. **Gap Analysis** (optional) - Find competitor keyword opportunities
-4. **AI Generation** - Gemini-powered keyword creation
-5. **SERP Analysis** (optional) - AEO scoring and featured snippet detection
-6. **Scoring & Clustering** - Company-fit scoring and semantic grouping
-
-### Export Formats
-
-- JSON (full data with all metadata)
-- CSV (flat format for spreadsheets)
-    """,
-    version="1.0.0",
+    description="AI-powered SEO keyword generation using 5-stage pipeline",
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
-    openapi_url="/openapi.json",
-    contact={
-        "name": "OpenKeywords",
-        "url": "https://github.com/federicodeponte/openkeyword",
-    },
-    license_info={
-        "name": "MIT",
-    },
 )
 
 
 # =============================================================================
-# Background Task Runner
+# Health Endpoints
 # =============================================================================
 
 
-def _result_to_response(result: GenerationResult) -> dict:
-    """Convert GenerationResult to API response dict."""
-    return {
-        "keywords": [
-            {
-                "keyword": kw.keyword,
-                "intent": kw.intent,
-                "score": kw.score,
-                "cluster_name": kw.cluster_name,
-                "is_question": kw.is_question,
-                "volume": kw.volume,
-                "difficulty": kw.difficulty,
-                "source": kw.source,
-                "aeo_opportunity": kw.aeo_opportunity,
-                "has_featured_snippet": kw.has_featured_snippet,
-                "has_paa": kw.has_paa,
-                "serp_analyzed": kw.serp_analyzed,
-            }
-            for kw in result.keywords
-        ],
-        "clusters": [
-            {"name": c.name, "keywords": c.keywords, "count": c.count}
-            for c in result.clusters
-        ],
-        "statistics": {
-            "total": result.statistics.total,
-            "avg_score": result.statistics.avg_score,
-            "intent_breakdown": result.statistics.intent_breakdown,
-            "source_breakdown": result.statistics.source_breakdown,
-            "duplicate_count": result.statistics.duplicate_count,
-        },
-        "processing_time_seconds": result.processing_time_seconds,
-    }
-
-
-async def run_generation_job(job_id: str, request: KeywordRequest):
-    """Background task to run keyword generation."""
-    try:
-        job_store.update(job_id, status=JobStatus.RUNNING)
-
-        # Use new pipeline if available and company_url is provided
-        if USE_NEW_PIPELINE and request.company_url:
-            # Run new staged pipeline
-            result = await run_pipeline(
-                company_url=str(request.company_url),
-                company_name=request.company_name,
-                target_count=request.target_count,
-                language=request.language,
-                region=request.region,
-                enable_research=request.enable_research or request.research_focus,
-                enable_clustering=True,
-                min_score=request.min_score,
-                cluster_count=request.cluster_count,
-            )
-
-            # Convert new pipeline result to API response format
-            result_dict = {
-                "keywords": [
-                    {
-                        "keyword": kw.get("keyword", ""),
-                        "intent": kw.get("intent", "informational"),
-                        "score": kw.get("score", 0),
-                        "cluster_name": kw.get("cluster_name"),
-                        "is_question": kw.get("is_question", False),
-                        "volume": 0,
-                        "difficulty": 50,
-                        "source": kw.get("source", "ai_generated"),
-                        "aeo_opportunity": 0,
-                        "has_featured_snippet": False,
-                        "has_paa": False,
-                        "serp_analyzed": False,
-                    }
-                    for kw in result.get("keywords", [])
-                ],
-                "clusters": [
-                    {"name": c.get("name", ""), "keywords": c.get("keywords", []), "count": len(c.get("keywords", []))}
-                    for c in result.get("clusters", [])
-                ],
-                "statistics": {
-                    "total": result.get("statistics", {}).get("total_keywords", 0),
-                    "avg_score": result.get("statistics", {}).get("avg_score", 0),
-                    "intent_breakdown": result.get("intent_breakdown", {}),
-                    "source_breakdown": result.get("source_breakdown", {}),
-                    "duplicate_count": result.get("statistics", {}).get("duplicates_removed", 0),
-                },
-                "processing_time_seconds": result.get("statistics", {}).get("duration_seconds", 0),
-            }
-
-            job_store.update(
-                job_id,
-                status=JobStatus.COMPLETED,
-                result=result_dict,
-                progress={
-                    "keywords_generated": len(result.get("keywords", [])),
-                    "target_count": request.target_count,
-                },
-            )
-            return
-
-        # Fallback to old pipeline
-        # Build CompanyInfo
-        company_info = CompanyInfo(
-            name=request.company_name,
-            url=str(request.company_url) if request.company_url else "",
-            industry=request.industry,
-            description=request.description,
-            services=request.services,
-            products=request.products,
-            target_audience=request.target_audience,
-            target_location=request.target_location,
-            competitors=request.competitors,
-        )
-
-        # Auto-analyze company if requested
-        if request.analyze_company_first and request.company_url:
-            try:
-                from openkeywords.company_analyzer import analyze_company
-
-                analysis = await analyze_company(str(request.company_url))
-
-                # Merge analysis results
-                company_info.name = company_info.name or analysis.get(
-                    "company_name", "Unknown"
-                )
-                company_info.industry = company_info.industry or analysis.get(
-                    "industry"
-                )
-                company_info.description = company_info.description or analysis.get(
-                    "description"
-                )
-                company_info.products = company_info.products or analysis.get(
-                    "products", []
-                )
-                company_info.services = company_info.services or analysis.get(
-                    "services", []
-                )
-                company_info.pain_points = analysis.get("pain_points", [])
-                company_info.customer_problems = analysis.get("customer_problems", [])
-                company_info.use_cases = analysis.get("use_cases", [])
-                company_info.value_propositions = analysis.get("value_propositions", [])
-                company_info.differentiators = analysis.get("differentiators", [])
-                company_info.key_features = analysis.get("key_features", [])
-                company_info.solution_keywords = analysis.get("solution_keywords", [])
-                company_info.brand_voice = analysis.get("brand_voice")
-            except Exception as e:
-                # Log but don't fail - continue without analysis
-                pass
-
-        # Build GenerationConfig
-        config = GenerationConfig(
-            target_count=request.target_count,
-            min_score=request.min_score,
-            enable_clustering=True,
-            cluster_count=request.cluster_count,
-            language=request.language,
-            region=request.region,
-            enable_research=request.enable_research or request.research_focus,
-            research_focus=request.research_focus,
-            enable_serp_analysis=request.enable_serp_analysis,
-            serp_sample_size=request.serp_sample_size,
-            enable_volume_lookup=request.enable_volume_lookup,
-        )
-
-        # Run generation
-        generator = KeywordGenerator()
-        result = await generator.generate(company_info, config)
-
-        # Convert to response format
-        result_dict = _result_to_response(result)
-
-        job_store.update(
-            job_id,
-            status=JobStatus.COMPLETED,
-            result=result_dict,
-            progress={
-                "keywords_generated": len(result.keywords),
-                "target_count": request.target_count,
-            },
-        )
-
-    except Exception as e:
-        job_store.update(job_id, status=JobStatus.FAILED, error=str(e))
-
-
-# =============================================================================
-# API Endpoints
-# =============================================================================
-
-
-@app.get(
-    "/",
-    response_model=HealthResponse,
-    tags=["Health"],
-    summary="Health check",
-)
+@app.get("/", response_model=HealthResponse, tags=["Health"])
+@app.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
-    """Check API health status and configuration."""
+    """Check API health status."""
     return HealthResponse(
         status="healthy",
-        version="1.0.0",
-        timestamp=datetime.utcnow().isoformat(),
+        version="2.0.0",
         gemini_configured=bool(os.getenv("GEMINI_API_KEY")),
-        seranking_configured=bool(os.getenv("SERANKING_API_KEY")),
-        dataforseo_configured=bool(
-            os.getenv("DATAFORSEO_LOGIN") and os.getenv("DATAFORSEO_PASSWORD")
-        ),
+        timestamp=datetime.utcnow().isoformat(),
     )
 
 
-@app.get(
-    "/health",
-    response_model=HealthResponse,
-    tags=["Health"],
-    summary="Health check (alias)",
-)
-async def health():
-    """Health check endpoint (alias for root)."""
-    return await health_check()
+# =============================================================================
+# Job Endpoints
+# =============================================================================
 
 
 @app.post(
     "/api/v1/jobs",
     response_model=JobResponse,
-    status_code=202,
+    status_code=201,
     tags=["Jobs"],
-    summary="Start a new keyword generation job",
+    summary="Create keyword generation job",
 )
-async def create_job(
-    request: KeywordRequest,
-    background_tasks: BackgroundTasks,
-):
+async def create_job(request: KeywordRequest, background_tasks: BackgroundTasks):
     """
-    Start a new keyword generation job.
+    Create a new keyword generation job.
 
-    The job runs asynchronously in the background. Use the returned `job_id`
-    to check status via `GET /api/v1/jobs/{job_id}`.
-
-    **Example request:**
-    ```json
-    {
-        "company_name": "Acme Software",
-        "company_url": "https://acme.com",
-        "industry": "B2B SaaS",
-        "target_count": 100,
-        "enable_research": true
-    }
-    ```
+    The job runs asynchronously in the background. Poll GET /api/v1/jobs/{job_id}
+    to check status and retrieve results when completed.
     """
-    # Check API key
     if not os.getenv("GEMINI_API_KEY"):
         raise HTTPException(
-            status_code=503,
+            status_code=500,
             detail="GEMINI_API_KEY not configured. Set environment variable.",
         )
 
     job_id = str(uuid.uuid4())
     job = job_store.create(job_id, request)
 
-    # Start background task
-    background_tasks.add_task(run_generation_job, job_id, request)
+    background_tasks.add_task(_run_generation_job, job_id, request)
 
     return JobResponse(
         job_id=job_id,
         status=JobStatus.PENDING,
-        message=f"Job created. Generating {request.target_count} keywords for '{request.company_name}'.",
         created_at=job["created_at"],
     )
 
 
+async def _run_generation_job(job_id: str, request: KeywordRequest):
+    """Background task to run keyword generation."""
+    try:
+        job_store.update(job_id, status=JobStatus.RUNNING)
+
+        # Run the new pipeline
+        result = await run_pipeline(
+            company_url=str(request.company_url) if request.company_url else f"https://{request.company_name.lower().replace(' ', '')}.com",
+            company_name=request.company_name,
+            target_count=request.target_count,
+            language=request.language,
+            region=request.region,
+            enable_research=request.enable_research,
+            enable_clustering=True,
+            min_score=request.min_score,
+            cluster_count=request.cluster_count,
+        )
+
+        # Convert pipeline result to API response format
+        keywords = [
+            KeywordResult(
+                keyword=kw.get("keyword", ""),
+                intent=kw.get("intent", "informational"),
+                score=kw.get("score", 0),
+                cluster_name=kw.get("cluster_name"),
+                is_question=kw.get("is_question", False),
+                source=kw.get("source", "ai_generated"),
+            )
+            for kw in result.get("keywords", [])
+        ]
+
+        clusters = [
+            ClusterResult(
+                name=c.get("name", ""),
+                keywords=c.get("keywords", []),
+                count=len(c.get("keywords", [])),
+            )
+            for c in result.get("clusters", [])
+        ]
+
+        # Calculate statistics
+        intent_breakdown = {}
+        source_breakdown = {}
+        for kw in keywords:
+            intent_breakdown[kw.intent] = intent_breakdown.get(kw.intent, 0) + 1
+            source_breakdown[kw.source] = source_breakdown.get(kw.source, 0) + 1
+
+        response = GenerationResponse(
+            keywords=keywords,
+            clusters=clusters,
+            statistics=StatisticsResult(
+                total=len(keywords),
+                avg_score=result.get("statistics", {}).get("avg_score", 0),
+                intent_breakdown=intent_breakdown,
+                source_breakdown=source_breakdown,
+            ),
+            processing_time_seconds=result.get("statistics", {}).get("duration_seconds", 0),
+        )
+
+        job_store.update(
+            job_id,
+            status=JobStatus.COMPLETED,
+            completed_at=datetime.utcnow().isoformat(),
+            result=response.model_dump(),
+            progress={"keywords_generated": len(keywords), "target_count": request.target_count},
+        )
+
+    except Exception as e:
+        job_store.update(
+            job_id,
+            status=JobStatus.FAILED,
+            completed_at=datetime.utcnow().isoformat(),
+            error=str(e),
+        )
+
+
 @app.get(
     "/api/v1/jobs",
-    response_model=List[JobStatusResponse],
+    response_model=List[JobResponse],
     tags=["Jobs"],
     summary="List all jobs",
 )
-async def list_jobs(
-    limit: int = Query(default=50, ge=1, le=100, description="Max jobs to return"),
-):
-    """List all keyword generation jobs, sorted by creation time (newest first)."""
-    jobs = job_store.list_all(limit=limit)
+async def list_jobs():
+    """List all keyword generation jobs."""
+    jobs = job_store.list_all()
     return [
-        JobStatusResponse(
-            job_id=job["job_id"],
-            status=job["status"],
-            progress=job.get("progress"),
-            result=None,  # Don't include full result in list view
-            error=job.get("error"),
-            created_at=job["created_at"],
-            updated_at=job["updated_at"],
+        JobResponse(
+            job_id=j["job_id"],
+            status=j["status"],
+            created_at=j["created_at"],
+            completed_at=j.get("completed_at"),
+            progress=j.get("progress"),
+            error=j.get("error"),
         )
-        for job in jobs
+        for j in jobs
     ]
 
 
 @app.get(
     "/api/v1/jobs/{job_id}",
-    response_model=JobStatusResponse,
+    response_model=JobResponse,
     tags=["Jobs"],
     summary="Get job status",
 )
 async def get_job(job_id: str = Path(..., description="Job UUID")):
-    """
-    Get the status and result of a keyword generation job.
-
-    Returns full result when job is completed.
-    """
+    """Get the status and result of a keyword generation job."""
     _validate_job_id(job_id)
     job = job_store.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
-    return JobStatusResponse(
+    return JobResponse(
         job_id=job["job_id"],
         status=job["status"],
+        created_at=job["created_at"],
+        completed_at=job.get("completed_at"),
         progress=job.get("progress"),
         result=job.get("result"),
         error=job.get("error"),
-        created_at=job["created_at"],
-        updated_at=job["updated_at"],
     )
 
 
@@ -762,6 +457,11 @@ async def delete_job(job_id: str = Path(..., description="Job UUID")):
     return None
 
 
+# =============================================================================
+# Export Endpoints
+# =============================================================================
+
+
 @app.get(
     "/api/v1/jobs/{job_id}/export/json",
     tags=["Export"],
@@ -773,16 +473,12 @@ async def export_json(job_id: str = Path(..., description="Job UUID")):
     job = job_store.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-
     if job["status"] != JobStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="Job not completed")
 
     return JSONResponse(
-        content=job.get("result", {}),
-        media_type="application/json",
-        headers={
-            "Content-Disposition": f'attachment; filename="keywords_{job_id[:8]}.json"'
-        },
+        content=job["result"],
+        headers={"Content-Disposition": f"attachment; filename=keywords_{job_id}.json"},
     )
 
 
@@ -800,188 +496,125 @@ async def export_csv(job_id: str = Path(..., description="Job UUID")):
     job = job_store.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
-
     if job["status"] != JobStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="Job not completed")
 
-    result = job.get("result", {})
-    keywords = result.get("keywords", [])
-
-    # Create CSV in memory
     output = io.StringIO()
     writer = csv.writer(output)
 
-    # Headers
-    headers = [
-        "keyword",
-        "intent",
-        "score",
-        "cluster",
-        "is_question",
-        "volume",
-        "difficulty",
-        "source",
-        "aeo_opportunity",
-        "has_featured_snippet",
-        "has_paa",
-    ]
+    # Header
+    headers = ["keyword", "intent", "score", "cluster_name", "is_question", "source"]
     writer.writerow(headers)
 
     # Data (sanitized to prevent CSV formula injection)
-    for kw in keywords:
-        writer.writerow(
-            [
-                _sanitize_csv_value(kw.get("keyword", "")),
-                _sanitize_csv_value(kw.get("intent", "")),
-                kw.get("score", 0),
-                _sanitize_csv_value(kw.get("cluster_name", "")),
-                kw.get("is_question", False),
-                kw.get("volume", 0),
-                kw.get("difficulty", 50),
-                _sanitize_csv_value(kw.get("source", "")),
-                kw.get("aeo_opportunity", 0),
-                kw.get("has_featured_snippet", False),
-                kw.get("has_paa", False),
-            ]
-        )
+    for kw in job["result"]["keywords"]:
+        writer.writerow([
+            _sanitize_csv_value(kw.get("keyword", "")),
+            _sanitize_csv_value(kw.get("intent", "")),
+            kw.get("score", 0),
+            _sanitize_csv_value(kw.get("cluster_name", "")),
+            kw.get("is_question", False),
+            _sanitize_csv_value(kw.get("source", "")),
+        ])
 
     csv_content = output.getvalue()
+    output.close()
 
-    from fastapi.responses import Response
-
-    return Response(
-        content=csv_content,
-        media_type="text/csv",
-        headers={
-            "Content-Disposition": f'attachment; filename="keywords_{job_id[:8]}.csv"'
-        },
+    return JSONResponse(
+        content={"csv": csv_content},
+        headers={"Content-Disposition": f"attachment; filename=keywords_{job_id}.csv"},
     )
+
+
+# =============================================================================
+# Sync Generation Endpoint (for small requests)
+# =============================================================================
 
 
 @app.post(
     "/api/v1/generate",
-    response_model=GenerationResultResponse,
-    tags=["Sync"],
-    summary="Generate keywords (synchronous)",
+    response_model=GenerationResponse,
+    tags=["Generate"],
+    summary="Generate keywords (sync)",
 )
 async def generate_sync(request: KeywordRequest):
     """
-    Generate keywords synchronously (blocking).
+    Generate keywords synchronously.
 
-    **Warning:** This endpoint blocks until generation completes.
-    For large batches (>100 keywords), use the async job endpoint instead.
-
-    Returns the full generation result directly.
+    For small requests (≤100 keywords). Use /api/v1/jobs for larger requests.
     """
-    # Check API key
     if not os.getenv("GEMINI_API_KEY"):
         raise HTTPException(
-            status_code=503,
+            status_code=500,
             detail="GEMINI_API_KEY not configured. Set environment variable.",
         )
 
     if request.target_count > 100:
         raise HTTPException(
             status_code=400,
-            detail="Synchronous generation limited to 100 keywords. Use /api/v1/jobs for larger batches.",
+            detail="Use /api/v1/jobs for requests > 100 keywords",
         )
 
-    # Build CompanyInfo
-    company_info = CompanyInfo(
-        name=request.company_name,
-        url=str(request.company_url) if request.company_url else "",
-        industry=request.industry,
-        description=request.description,
-        services=request.services,
-        products=request.products,
-        target_audience=request.target_audience,
-        target_location=request.target_location,
-        competitors=request.competitors,
-    )
+    try:
+        result = await run_pipeline(
+            company_url=str(request.company_url) if request.company_url else f"https://{request.company_name.lower().replace(' ', '')}.com",
+            company_name=request.company_name,
+            target_count=request.target_count,
+            language=request.language,
+            region=request.region,
+            enable_research=request.enable_research,
+            enable_clustering=True,
+            min_score=request.min_score,
+            cluster_count=request.cluster_count,
+        )
 
-    # Auto-analyze if requested
-    if request.analyze_company_first and request.company_url:
-        try:
-            from openkeywords.company_analyzer import analyze_company
+        keywords = [
+            KeywordResult(
+                keyword=kw.get("keyword", ""),
+                intent=kw.get("intent", "informational"),
+                score=kw.get("score", 0),
+                cluster_name=kw.get("cluster_name"),
+                is_question=kw.get("is_question", False),
+                source=kw.get("source", "ai_generated"),
+            )
+            for kw in result.get("keywords", [])
+        ]
 
-            analysis = await analyze_company(str(request.company_url))
-            company_info.name = company_info.name or analysis.get(
-                "company_name", "Unknown"
+        clusters = [
+            ClusterResult(
+                name=c.get("name", ""),
+                keywords=c.get("keywords", []),
+                count=len(c.get("keywords", [])),
             )
-            company_info.industry = company_info.industry or analysis.get("industry")
-            company_info.description = company_info.description or analysis.get(
-                "description"
-            )
-            company_info.products = company_info.products or analysis.get(
-                "products", []
-            )
-            company_info.services = company_info.services or analysis.get(
-                "services", []
-            )
-            company_info.pain_points = analysis.get("pain_points", [])
-            company_info.value_propositions = analysis.get("value_propositions", [])
-            company_info.differentiators = analysis.get("differentiators", [])
-        except Exception:
-            pass  # Continue without analysis
+            for c in result.get("clusters", [])
+        ]
 
-    # Build config
-    config = GenerationConfig(
-        target_count=request.target_count,
-        min_score=request.min_score,
-        enable_clustering=True,
-        cluster_count=request.cluster_count,
-        language=request.language,
-        region=request.region,
-        enable_research=request.enable_research or request.research_focus,
-        research_focus=request.research_focus,
-        enable_serp_analysis=request.enable_serp_analysis,
-        serp_sample_size=request.serp_sample_size,
-        enable_volume_lookup=request.enable_volume_lookup,
-    )
+        intent_breakdown = {}
+        source_breakdown = {}
+        for kw in keywords:
+            intent_breakdown[kw.intent] = intent_breakdown.get(kw.intent, 0) + 1
+            source_breakdown[kw.source] = source_breakdown.get(kw.source, 0) + 1
 
-    # Run generation
-    generator = KeywordGenerator()
-    result = await generator.generate(company_info, config)
+        return GenerationResponse(
+            keywords=keywords,
+            clusters=clusters,
+            statistics=StatisticsResult(
+                total=len(keywords),
+                avg_score=result.get("statistics", {}).get("avg_score", 0),
+                intent_breakdown=intent_breakdown,
+                source_breakdown=source_breakdown,
+            ),
+            processing_time_seconds=result.get("statistics", {}).get("duration_seconds", 0),
+        )
 
-    # Convert to response
-    return GenerationResultResponse(
-        keywords=[
-            KeywordResponse(
-                keyword=kw.keyword,
-                intent=kw.intent,
-                score=kw.score,
-                cluster_name=kw.cluster_name,
-                is_question=kw.is_question,
-                volume=kw.volume,
-                difficulty=kw.difficulty,
-                source=kw.source,
-                aeo_opportunity=kw.aeo_opportunity,
-                has_featured_snippet=kw.has_featured_snippet,
-                has_paa=kw.has_paa,
-                serp_analyzed=kw.serp_analyzed,
-            )
-            for kw in result.keywords
-        ],
-        clusters=[
-            ClusterResponse(name=c.name, keywords=c.keywords, count=c.count)
-            for c in result.clusters
-        ],
-        statistics=StatisticsResponse(
-            total=result.statistics.total,
-            avg_score=result.statistics.avg_score,
-            intent_breakdown=result.statistics.intent_breakdown,
-            source_breakdown=result.statistics.source_breakdown,
-            duplicate_count=result.statistics.duplicate_count,
-        ),
-        processing_time_seconds=result.processing_time_seconds,
-    )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # =============================================================================
-# Run with: uvicorn api:app --reload --port 8001
+# Main
 # =============================================================================
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8001)
