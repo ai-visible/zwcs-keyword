@@ -16,7 +16,7 @@ import asyncio
 import os
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -172,7 +172,7 @@ class JobStore:
         job = {
             "job_id": job_id,
             "status": JobStatus.PENDING,
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "completed_at": None,
             "request": request.model_dump(),
             "progress": None,
@@ -209,7 +209,7 @@ class JobStore:
         """Remove old jobs to prevent memory leak."""
         from datetime import timedelta
 
-        cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
         removed = 0
 
         with self._lock:
@@ -280,7 +280,7 @@ async def health_check():
         status="healthy",
         version="2.0.0",
         gemini_configured=bool(os.getenv("GEMINI_API_KEY")),
-        timestamp=datetime.utcnow().isoformat(),
+        timestamp=datetime.now(timezone.utc).isoformat(),
     )
 
 
@@ -383,7 +383,7 @@ async def _run_generation_job(job_id: str, request: KeywordRequest):
         job_store.update(
             job_id,
             status=JobStatus.COMPLETED,
-            completed_at=datetime.utcnow().isoformat(),
+            completed_at=datetime.now(timezone.utc).isoformat(),
             result=response.model_dump(),
             progress={"keywords_generated": len(keywords), "target_count": request.target_count},
         )
@@ -392,7 +392,7 @@ async def _run_generation_job(job_id: str, request: KeywordRequest):
         job_store.update(
             job_id,
             status=JobStatus.FAILED,
-            completed_at=datetime.utcnow().isoformat(),
+            completed_at=datetime.now(timezone.utc).isoformat(),
             error=str(e),
         )
 
