@@ -575,21 +575,21 @@ class KeywordGenerator:
                 "volume": volume,
                 "difficulty": difficulty,
                 "source": kw.get("source", "ai_generated"),
-                # SERP/AEO fields - safely access features
+                # SERP/AEO fields - safely access features with proper defaults
                 "aeo_opportunity": (
-                    serp_data.features.aeo_opportunity 
-                    if (serp_data and hasattr(serp_data, 'features') and serp_data.features and hasattr(serp_data.features, 'aeo_opportunity')) 
-                    else None
+                    serp_data.features.aeo_opportunity
+                    if (serp_data and hasattr(serp_data, 'features') and serp_data.features and hasattr(serp_data.features, 'aeo_opportunity'))
+                    else 0
                 ),
                 "has_featured_snippet": (
-                    serp_data.features.has_featured_snippet 
-                    if (serp_data and hasattr(serp_data, 'features') and serp_data.features and hasattr(serp_data.features, 'has_featured_snippet')) 
-                    else None
+                    serp_data.features.has_featured_snippet
+                    if (serp_data and hasattr(serp_data, 'features') and serp_data.features and hasattr(serp_data.features, 'has_featured_snippet'))
+                    else False
                 ),
                 "has_paa": (
-                    serp_data.features.has_paa 
-                    if (serp_data and hasattr(serp_data, 'features') and serp_data.features and hasattr(serp_data.features, 'has_paa')) 
-                    else None
+                    serp_data.features.has_paa
+                    if (serp_data and hasattr(serp_data, 'features') and serp_data.features and hasattr(serp_data.features, 'has_paa'))
+                    else False
                 ),
                 "serp_analyzed": (
                     serp_data is not None 
