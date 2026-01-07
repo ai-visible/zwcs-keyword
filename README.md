@@ -8,12 +8,12 @@ AI-powered SEO keyword generation using a 5-stage pipeline with Google Gemini.
 openkeyword/
 ├── api.py              # FastAPI REST API
 ├── run_pipeline.py     # Pipeline orchestrator
-├── shared/             # Shared utilities
 ├── stage1/             # Company Analysis
 ├── stage2/             # Deep Research (Reddit, Quora)
 ├── stage3/             # AI Keyword Generation
 ├── stage4/             # Scoring & Deduplication
-└── stage5/             # Clustering
+├── stage5/             # Clustering
+└── tests/              # Test suite
 ```
 
 ## Pipeline Stages
@@ -130,6 +130,16 @@ The pipeline returns:
     "duration_seconds": 25.3
   }
 }
+```
+
+## Testing
+
+```bash
+# Run all tests
+pytest tests/ -v
+
+# Run specific test file
+pytest tests/test_api.py -v
 ```
 
 ## License

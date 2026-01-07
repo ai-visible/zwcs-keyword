@@ -42,7 +42,7 @@ Homepage = "https://github.com/federicodeponte/openkeyword"
 Repository = "https://github.com/federicodeponte/openkeyword"
 
 [tool.hatch.build.targets.wheel]
-packages = ["shared", "stage1", "stage2", "stage3", "stage4", "stage5"]
+packages = ["stage1", "stage2", "stage3", "stage4", "stage5"]
 
 [tool.ruff]
 line-length = 100
