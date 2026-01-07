@@ -20,8 +20,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Path, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
 from openkeywords import (
@@ -312,6 +312,54 @@ class JobStore:
                 del self._jobs[job_id]
                 return True
         return False
+
+    def cleanup_old_jobs(self, max_age_hours: int = 24, max_jobs: int = 1000) -> int:
+        """Remove old jobs to prevent memory leak. Returns count of removed jobs."""
+        from datetime import datetime, timedelta
+
+        cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
+        removed = 0
+
+        with self._lock:
+            # Remove jobs older than max_age_hours
+            old_jobs = [
+                job_id for job_id, job in self._jobs.items()
+                if datetime.fromisoformat(job["created_at"]) < cutoff
+            ]
+            for job_id in old_jobs:
+                del self._jobs[job_id]
+                removed += 1
+
+            # If still over max_jobs, remove oldest
+            if len(self._jobs) > max_jobs:
+                sorted_jobs = sorted(
+                    self._jobs.items(),
+                    key=lambda x: x[1]["created_at"]
+                )
+                excess = len(self._jobs) - max_jobs
+                for job_id, _ in sorted_jobs[:excess]:
+                    del self._jobs[job_id]
+                    removed += 1
+
+        return removed
+
+
+def _validate_job_id(job_id: str) -> str:
+    """Validate job_id is a valid UUID to prevent injection."""
+    try:
+        uuid.UUID(job_id)
+        return job_id
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid job_id format (must be UUID)")
+
+
+def _sanitize_csv_value(value: Any) -> str:
+    """Sanitize value for CSV to prevent formula injection."""
+    str_val = str(value)
+    # Prefix with single quote if starts with formula characters
+    if str_val and str_val[0] in ('=', '+', '-', '@', '\t', '\r'):
+        return f"'{str_val}"
+    return str_val
 
 
 # Global job store
@@ -611,12 +659,13 @@ async def list_jobs(
     tags=["Jobs"],
     summary="Get job status",
 )
-async def get_job(job_id: str):
+async def get_job(job_id: str = Path(..., description="Job UUID")):
     """
     Get the status and result of a keyword generation job.
 
     Returns full result when job is completed.
     """
+    _validate_job_id(job_id)
     job = job_store.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
@@ -638,8 +687,9 @@ async def get_job(job_id: str):
     tags=["Jobs"],
     summary="Delete a job",
 )
-async def delete_job(job_id: str):
+async def delete_job(job_id: str = Path(..., description="Job UUID")):
     """Delete a job and its results."""
+    _validate_job_id(job_id)
     if not job_store.delete(job_id):
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
     return None
@@ -650,8 +700,9 @@ async def delete_job(job_id: str):
     tags=["Export"],
     summary="Export keywords as JSON",
 )
-async def export_json(job_id: str):
+async def export_json(job_id: str = Path(..., description="Job UUID")):
     """Export keywords from a completed job as JSON."""
+    _validate_job_id(job_id)
     job = job_store.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
@@ -673,11 +724,12 @@ async def export_json(job_id: str):
     tags=["Export"],
     summary="Export keywords as CSV",
 )
-async def export_csv(job_id: str):
+async def export_csv(job_id: str = Path(..., description="Job UUID")):
     """Export keywords from a completed job as CSV."""
     import csv
     import io
 
+    _validate_job_id(job_id)
     job = job_store.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
@@ -708,18 +760,18 @@ async def export_csv(job_id: str):
     ]
     writer.writerow(headers)
 
-    # Data
+    # Data (sanitized to prevent CSV formula injection)
     for kw in keywords:
         writer.writerow(
             [
-                kw.get("keyword", ""),
-                kw.get("intent", ""),
+                _sanitize_csv_value(kw.get("keyword", "")),
+                _sanitize_csv_value(kw.get("intent", "")),
                 kw.get("score", 0),
-                kw.get("cluster_name", ""),
+                _sanitize_csv_value(kw.get("cluster_name", "")),
                 kw.get("is_question", False),
                 kw.get("volume", 0),
                 kw.get("difficulty", 50),
-                kw.get("source", ""),
+                _sanitize_csv_value(kw.get("source", "")),
                 kw.get("aeo_opportunity", 0),
                 kw.get("has_featured_snippet", False),
                 kw.get("has_paa", False),
