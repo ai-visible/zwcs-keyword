@@ -1,0 +1,83 @@
+{
+  "metadata": {
+    "company_url": "https://example-saas.com",
+    "generated_at": "2026-01-12T10:30:00Z",
+    "total_keywords": 47,
+    "clusters": 6,
+    "processing_time_seconds": 12.4
+  },
+  "keywords": [
+    {
+      "keyword": "ai code assistant",
+      "intent": "transactional",
+      "relevance_score": 94,
+      "cluster": "developer_tools",
+      "is_question": false,
+      "source": "gemini_search"
+    },
+    {
+      "keyword": "best ai coding tools 2026",
+      "intent": "commercial",
+      "relevance_score": 91,
+      "cluster": "developer_tools",
+      "is_question": false,
+      "source": "gemini_search"
+    },
+    {
+      "keyword": "how to use claude code",
+      "intent": "informational",
+      "relevance_score": 88,
+      "cluster": "tutorials",
+      "is_question": true,
+      "source": "gemini_search"
+    },
+    {
+      "keyword": "cursor vs claude code comparison",
+      "intent": "commercial",
+      "relevance_score": 92,
+      "cluster": "comparisons",
+      "is_question": false,
+      "source": "reddit"
+    },
+    {
+      "keyword": "ai pair programming tools",
+      "intent": "transactional",
+      "relevance_score": 85,
+      "cluster": "developer_tools",
+      "is_question": false,
+      "source": "gemini_search"
+    },
+    {
+      "keyword": "what is the best ai for coding",
+      "intent": "informational",
+      "relevance_score": 89,
+      "cluster": "comparisons",
+      "is_question": true,
+      "source": "quora"
+    },
+    {
+      "keyword": "claude code pricing",
+      "intent": "transactional",
+      "relevance_score": 87,
+      "cluster": "pricing",
+      "is_question": false,
+      "source": "gemini_search"
+    },
+    {
+      "keyword": "ai code review automation",
+      "intent": "transactional",
+      "relevance_score": 82,
+      "cluster": "automation",
+      "is_question": false,
+      "source": "gemini_search"
+    }
+  ],
+  "clusters_summary": {
+    "developer_tools": { "count": 18, "avg_relevance": 88.2 },
+    "tutorials": { "count": 12, "avg_relevance": 79.5 },
+    "comparisons": { "count": 8, "avg_relevance": 91.3 },
+    "pricing": { "count": 4, "avg_relevance": 85.0 },
+    "automation": { "count": 3, "avg_relevance": 82.7 },
+    "integrations": { "count": 2, "avg_relevance": 76.0 }
+  }
+}
