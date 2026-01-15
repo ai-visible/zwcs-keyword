@@ -1,0 +1,240 @@
+{
+  "company": {
+    "name": "Beijing Percent Information Technology Co., Ltd.",
+    "url": "https://www.percent.cn",
+    "industry": "Data Intelligence & AI"
+  },
+  "config": {
+    "language": "en",
+    "region": "us",
+    "target_count": 20,
+    "enable_research": false,
+    "enable_clustering": true,
+    "min_score": 40
+  },
+  "statistics": {
+    "total_keywords": 19,
+    "total_clusters": 6,
+    "avg_score": 70.3,
+    "duplicates_removed": 0,
+    "low_score_removed": 1,
+    "ai_calls": 4,
+    "duration_seconds": 60.7
+  },
+  "intent_breakdown": {
+    "transactional": 5,
+    "commercial": 4,
+    "comparison": 1,
+    "informational": 5,
+    "question": 4
+  },
+  "source_breakdown": {
+    "ai_generated": 19
+  },
+  "keywords": [
+    {
+      "keyword": "BD-OS big data pricing",
+      "intent": "transactional",
+      "score": 85,
+      "source": "ai_generated",
+      "is_question": false,
+      "cluster_name": "Pricing and Cost Analysis"
+    },
+    {
+      "keyword": "Clever BI demo request",
+      "intent": "transactional",
+      "score": 85,
+      "source": "ai_generated",
+      "is_question": false,
+      "cluster_name": "Big Data & BI Solutions"
+    },
+    {
+      "keyword": "alternatives to traditional BI tools",
+      "intent": "commercial",
+      "score": 65,
+      "source": "ai_generated",
+      "is_question": false,
+      "cluster_name": "Big Data & BI Solutions"
+    },
+    {
+      "keyword": "DeepFinder vs Tableau",
+      "intent": "comparison",
+      "score": 80,
+      "source": "ai_generated",
+      "is_question": false,
+      "cluster_name": "Product Feature Deep Dives"
+    },
+    {
+      "keyword": "what is data governance consulting",
+      "intent": "informational",
+      "score": 65,
+      "source": "ai_generated",
+      "is_question": true,
+      "cluster_name": "Data Governance Consulting"
+    },
+    {
+      "keyword": "how to extract insights from big data",
+      "intent": "question",
+      "score": 65,
+      "source": "ai_generated",
+      "is_question": true,
+      "cluster_name": "Big Data & BI Solutions"
+    },
+    {
+      "keyword": "AI model development services pricing",
+      "intent": "transactional",
+      "score": 85,
+      "source": "ai_generated",
+      "is_question": false,
+      "cluster_name": "Pricing and Cost Analysis"
+    },
+    {
+      "keyword": "intelligent decision making solutions comparison",
+      "intent": "commercial",
+      "score": 80,
+      "source": "ai_generated",
+      "is_question": false,
+      "cluster_name": "Intelligent Decision Making"
+    },
+    {
+      "keyword": "digital transformation consulting for government",
+      "intent": "informational",
+      "score": 65,
+      "source": "ai_generated",
+      "is_question": false,
+      "cluster_name": "Intelligent Decision Making"
+    },
+    {
+      "keyword": "how to solve data silos problem",
+      "intent": "question",
+      "score": 65,
+      "source": "ai_generated",
+      "is_question": true,
+      "cluster_name": "Data Governance Consulting"
+    },
+    {
+      "keyword": "DeepGovernor real-time monitoring",
+      "intent": "informational",
+      "score": 85,
+      "source": "ai_generated",
+      "is_question": false,
+      "cluster_name": "Product Feature Deep Dives"
+    },
+    {
+      "keyword": "Mediaforce for emergency response",
+      "intent": "commercial",
+      "score": 85,
+      "source": "ai_generated",
+      "is_question": false,
+      "cluster_name": "Intelligent Decision Making"
+    },
+    {
+      "keyword": "customized software development cost US",
+      "intent": "transactional",
+      "score": 45,
+      "source": "ai_generated",
+      "is_question": false,
+      "cluster_name": "Pricing and Cost Analysis"
+    },
+    {
+      "keyword": "best big data operating system",
+      "intent": "commercial",
+      "score": 65,
+      "source": "ai_generated",
+      "is_question": false,
+      "cluster_name": "Big Data & BI Solutions"
+    },
+    {
+      "keyword": "data governance consulting services",
+      "intent": "transactional",
+      "score": 80,
+      "source": "ai_generated",
+      "is_question": false,
+      "cluster_name": "Data Governance Consulting"
+    },
+    {
+      "keyword": "AI model development best practices",
+      "intent": "informational",
+      "score": 65,
+      "source": "ai_generated",
+      "is_question": false,
+      "cluster_name": "AI Model Development"
+    },
+    {
+      "keyword": "what is intelligent decision-making",
+      "intent": "question",
+      "score": 45,
+      "source": "ai_generated",
+      "is_question": true,
+      "cluster_name": "Intelligent Decision Making"
+    },
+    {
+      "keyword": "how to improve emergency response time",
+      "intent": "question",
+      "score": 40,
+      "source": "ai_generated",
+      "is_question": true,
+      "cluster_name": "Intelligent Decision Making"
+    },
+    {
+      "keyword": "DeepFinder data analysis tutorial",
+      "intent": "informational",
+      "score": 85,
+      "source": "ai_generated",
+      "is_question": false,
+      "cluster_name": "Product Feature Deep Dives"
+    }
+  ],
+  "clusters": [
+    {
+      "name": "Product Feature Deep Dives",
+      "keywords": [
+        "DeepFinder vs Tableau",
+        "DeepGovernor real-time monitoring",
+        "DeepFinder data analysis tutorial"
+      ]
+    },
+    {
+      "name": "Pricing and Cost Analysis",
+      "keywords": [
+        "BD-OS big data pricing",
+        "AI model development services pricing",
+        "customized software development cost US"
+      ]
+    },
+    {
+      "name": "Data Governance Consulting",
+      "keywords": [
+        "what is data governance consulting",
+        "data governance consulting services",
+        "how to solve data silos problem"
+      ]
+    },
+    {
+      "name": "Big Data & BI Solutions",
+      "keywords": [
+        "Clever BI demo request",
+        "alternatives to traditional BI tools",
+        "how to extract insights from big data",
+        "best big data operating system"
+      ]
+    },
+    {
+      "name": "AI Model Development",
+      "keywords": [
+        "AI model development best practices"
+      ]
+    },
+    {
+      "name": "Intelligent Decision Making",
+      "keywords": [
+        "intelligent decision making solutions comparison",
+        "what is intelligent decision-making",
+        "digital transformation consulting for government",
+        "Mediaforce for emergency response",
+        "how to improve emergency response time"
+      ]
+    }
+  ],
+  "created_at": "2026-01-15T11:57:02.267173"
+}

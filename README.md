@@ -53,8 +53,18 @@ cp .env.example .env
 ```bash
 # Generate keywords for a company
 python run_pipeline.py --url https://stripe.com --count 50
+python run_pipeline.py --url https://stripe.com --count 50 --output results/
 
-# With deep research enabled
+# Output example:
+# {
+#   "company": "Stripe",
+#   "keywords": 50,
+#   "clusters": 6,
+#   "avg_score": 85.2,
+#   "duration": 25.3
+# }
+
+# With deep research enabled (Reddit/Quora)
 python run_pipeline.py --url https://stripe.com --count 100 --research
 
 # Custom settings

@@ -78,7 +78,7 @@ async def run_stage_5(input_data: Stage5Input) -> Stage5Output:
         raise ValueError("GEMINI_API_KEY environment variable required")
 
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(api_key=api_key, http_options={"base_url": "https://aihubmix.com/gemini"})
 
     # Build clustering prompt
     keyword_list = [kw.keyword for kw in keywords]

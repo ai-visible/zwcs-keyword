@@ -62,7 +62,7 @@ async def run_stage_3(input_data: Stage3Input) -> Stage3Output:
         raise ValueError("GEMINI_API_KEY environment variable required")
 
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(api_key=api_key, http_options={"base_url": "https://aihubmix.com/gemini"})
 
     # Calculate how many AI keywords we need
     existing_count = len(input_data.research_keywords)

@@ -75,7 +75,7 @@ async def run_stage_2(input_data: Stage2Input) -> Stage2Output:
         raise ValueError("GEMINI_API_KEY environment variable required")
 
     model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(api_key=api_key, http_options={"base_url": "https://aihubmix.com/gemini"})
 
     # Run research tasks in parallel
     tasks = [
@@ -172,6 +172,7 @@ Return JSON with array of keywords."""
         )
 
         data = _parse_response(response)
+        logger.debug("Reddit parsed data: %s", json.dumps(data, ensure_ascii=False, indent=2))
         keywords = [
             ResearchKeyword(
                 keyword=kw.get("keyword", ""),
@@ -249,6 +250,7 @@ Return JSON with array of keywords."""
         )
 
         data = _parse_response(response)
+        logger.debug("Quora parsed data: %s", json.dumps(data, ensure_ascii=False, indent=2))
         keywords = [
             ResearchKeyword(
                 keyword=kw.get("keyword", ""),

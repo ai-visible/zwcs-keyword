@@ -1,7 +1,7 @@
 """
-Stage 1: Company Analysis
+Stage 1: Company Analysis (DeepSeek Version)
 
-Analyzes company website using Gemini with Google Search grounding.
+Analyzes company website using OpenAI-compatible client (DeepSeek).
 Extracts rich context for hyper-specific keyword generation.
 """
 
@@ -9,44 +9,38 @@ import asyncio
 import json
 import logging
 import os
-from typing import Optional, List
-from pydantic import BaseModel, Field
+from typing import Optional
 
-from shared import GeminiClient
+from openai import OpenAI
 
 from .stage1_models import Stage1Input, Stage1Output, CompanyContext
 
 logger = logging.getLogger(__name__)
 
 # Response schema for structured company analysis
-class CompanyAnalysisSchema(BaseModel):
-    company_name: str = Field(..., description="Company name")
-    description: Optional[str] = Field(None, description="Company description")
-    industry: Optional[str] = Field(None, description="Industry category")
-    
-    # Products & Services
-    products: List[str] = Field(default_factory=list, description="Products they sell")
-    services: List[str] = Field(default_factory=list, description="Services they offer")
-    
-    # Customer Insights
-    target_audience: List[str] = Field(default_factory=list, description="Target customers")
-    pain_points: List[str] = Field(default_factory=list, description="Customer pain points")
-    customer_problems: List[str] = Field(default_factory=list, description="Problems they solve")
-    use_cases: List[str] = Field(default_factory=list, description="Real use cases")
-    
-    # Value & Differentiation
-    value_propositions: List[str] = Field(default_factory=list, description="Key value props")
-    differentiators: List[str] = Field(default_factory=list, description="What makes them unique")
-    key_features: List[str] = Field(default_factory=list, description="Key features")
-    solution_keywords: List[str] = Field(default_factory=list, description="Solution terms")
-    
-    # Market
-    competitors: List[str] = Field(default_factory=list, description="Competitor URLs/names")
-    primary_region: Optional[str] = Field(None, description="Primary geographic market")
-    
-    # Brand
-    brand_voice: Optional[str] = Field(None, description="Brand communication style")
-    product_category: Optional[str] = Field(None, description="Product category")
+COMPANY_ANALYSIS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "company_name": {"type": "string"},
+        "description": {"type": "string"},
+        "industry": {"type": "string"},
+        "target_audience": {"type": "array", "items": {"type": "string"}},
+        "products": {"type": "array", "items": {"type": "string"}},
+        "services": {"type": "array", "items": {"type": "string"}},
+        "pain_points": {"type": "array", "items": {"type": "string"}},
+        "customer_problems": {"type": "array", "items": {"type": "string"}},
+        "use_cases": {"type": "array", "items": {"type": "string"}},
+        "value_propositions": {"type": "array", "items": {"type": "string"}},
+        "differentiators": {"type": "array", "items": {"type": "string"}},
+        "key_features": {"type": "array", "items": {"type": "string"}},
+        "solution_keywords": {"type": "array", "items": {"type": "string"}},
+        "competitors": {"type": "array", "items": {"type": "string"}},
+        "brand_voice": {"type": "string"},
+        "product_category": {"type": "string"},
+        "primary_region": {"type": "string"},
+    },
+    "required": ["company_name", "description", "industry", "products"],
+}
 
 
 async def run_stage_1(input_data: Stage1Input) -> Stage1Output:
@@ -60,19 +54,17 @@ async def run_stage_1(input_data: Stage1Input) -> Stage1Output:
         Stage1Output with rich company context
     """
     logger.info("=" * 60)
-    logger.info("[Stage 1] Company Analysis")
+    logger.info("[Stage 1] Company Analysis (DeepSeek)")
     logger.info("=" * 60)
     logger.info(f"  URL: {input_data.company_url}")
 
-    # Initialize Gemini client
-    api_key = os.getenv("GEMINI_API_KEY")
+    # Initialize OpenAI client
+    api_key = os.getenv("DEEPSEEK_API_KEY")
     if not api_key:
-        raise ValueError("GEMINI_API_KEY environment variable required")
+        raise ValueError("DEEPSEEK_API_KEY environment variable required")
 
-    if GeminiClient is None:
-            raise ImportError("shared.gemini_client not available")
-
-    client = GeminiClient(api_key=api_key)
+    base_url = "https://api.deepseek.com"
+    client = OpenAI(api_key=api_key, base_url=base_url)
 
     # Get current date for context
     from datetime import datetime
@@ -81,14 +73,16 @@ async def run_stage_1(input_data: Stage1Input) -> Stage1Output:
     # Build analysis prompt
     prompt = f"""Today's date: {current_date}
 
-Analyze the company at {input_data.company_url}
+You are an expert business analyst, content strategist, and visual designer. Analyze the company website at {input_data.company_url} and extract comprehensive company context INCLUDING a detailed writing persona AND visual identity for image generation.
 
-Search Google for comprehensive information about this company:
-- Search: "{input_data.company_url} products services"
-- Search: "{input_data.company_url} customers reviews"
-- Search: "{input_data.company_url} vs competitors"
+IMPORTANT INSTRUCTIONS:
+1. Use the URL Context tool to fetch and analyze the actual content at {input_data.company_url}
+2. Use Google Search to find additional real information about this company
+3. Do NOT make up or hallucinate data - only use information you actually retrieve
+4. If you cannot find information about the company, return an error field in the JSON
+5. **CRITICAL: Find and analyze existing blog post images for visual style reference**
 
-Extract SPECIFIC information:
+Analyze all retrieved information to provide:
 
 1. COMPANY BASICS
    - Company name (official name)
@@ -120,24 +114,46 @@ Extract SPECIFIC information:
    - Product category
 
 Be thorough and specific. Use real information from search results.
-"""
+
+Return JSON matching this schema:
+{json.dumps(COMPANY_ANALYSIS_SCHEMA, indent=2)}"""
 
     try:
-        # Call Gemini with Google Search grounding
-        analysis = await client.generate(
-            prompt=prompt,
-            use_url_context=True,
-            use_google_search=True,
-            json_output=True,
-            response_schema=CompanyAnalysisSchema,
-            temperature=0.2,
+        response = await asyncio.to_thread(
+            client.chat.completions.create,
+            model="deepseek-reasoner",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant that analyzes companies and returns valid JSON.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.7,
+            response_format={"type": "json_object"},
+            extra_body={
+                "web_search": True,
+                "thinking": {"type": "enabled"},
+            },
         )
+
+        response_content = response.choices[0].message.content
+        if not response_content:
+            raise ValueError("Empty response from DeepSeek")
+
+        # Handle markdown code blocks if present
+        response_text = response_content.strip()
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0].strip()
+
+        analysis = json.loads(response_text)
 
         # Override company name if provided
         if input_data.company_name:
             analysis["company_name"] = input_data.company_name
 
-        logger.info("Stage 1 raw analysis:\n%s", json.dumps(analysis, ensure_ascii=False, indent=2))
         # Build CompanyContext from analysis
         company_context = CompanyContext(
             company_name=analysis.get("company_name", "Unknown"),
